@@ -2,6 +2,7 @@
 .venv
 .env
 data
+secrets
 tests
 **/__pycache__
 *.egg-info

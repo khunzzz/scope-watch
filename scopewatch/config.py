@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -19,9 +19,17 @@ def load_dotenv(path: Path) -> None:
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
+def read_secret(env, name: str) -> str | None:
+    """Секрет из файла <NAME>_FILE (Docker secret) или, если файла нет, из переменной <NAME>."""
+    path = env.get(f"{name}_FILE")
+    if path:
+        return Path(path).read_text().strip() or None
+    return env.get(name) or None
+
+
 @dataclass(frozen=True)
 class Settings:
-    tg_token: str | None
+    tg_token: str | None = field(repr=False)   # не печатается в repr/логах
     tg_chat_id: str | None
     data_dir: Path
     request_delay: float = 0.4
@@ -51,7 +59,7 @@ class Settings:
         load_dotenv(PROJECT_ROOT / ".env")
         env = os.environ
         return cls(
-            tg_token=env.get("TG_BOT_TOKEN"),
+            tg_token=read_secret(env, "TG_BOT_TOKEN"),
             tg_chat_id=env.get("TG_CHAT_ID"),
             data_dir=Path(env.get("SCOPEWATCH_DATA", PROJECT_ROOT / "data")),
             request_delay=float(env.get("SCOPEWATCH_DELAY", 0.4)),

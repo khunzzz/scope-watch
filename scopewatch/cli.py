@@ -19,6 +19,7 @@ import signal
 import sys
 import time
 
+from . import logs
 from .config import Settings
 from .linker import Linker
 from .notify import Stdout, Telegram
@@ -200,10 +201,9 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_export)
 
     a = ap.parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    return a.func(Settings.from_env(), a)
+    settings = Settings.from_env()
+    logs.setup(a.verbose, [settings.tg_token])
+    return a.func(settings, a)
 
 
 if __name__ == "__main__":

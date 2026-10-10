@@ -5,8 +5,10 @@
 ## Запуск
 
 ```bash
-cp .env.example .env              # TG_BOT_TOKEN, TG_CHAT_ID
-mkdir -p data && sudo chown 1000:1000 data
+cp .env.example .env                        # TG_CHAT_ID
+mkdir -p secrets data && sudo chown 1000:1000 data
+printf '%s' 'ТОКЕН_БОТА' > secrets/tg_bot_token
+sudo chown 1000:1000 secrets/tg_bot_token && sudo chmod 400 secrets/tg_bot_token
 docker compose up -d --build
 ```
 
