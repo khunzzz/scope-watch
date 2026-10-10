@@ -1,4 +1,4 @@
-from scopewatch.assets import covered, extract, link_tokens, registrable
+from scopewatch.assets import covered, extract, link_tokens, registrable, split_scope
 from scopewatch.sources import standoff
 
 
@@ -39,3 +39,37 @@ def test_covered():
     pool = {"*.x.ru", "y.ru"}
     assert covered("api.x.ru", pool) and covered("x.ru", pool) and covered("*.a.x.ru", pool)
     assert covered("y.ru", pool) and not covered("api.y.ru", pool) and not covered("z.ru", pool)
+
+
+def test_split_scope_sections():
+    md = """# Область действия
+- *.corp.ru
+- app.corp.ru
+
+**Мобильные приложения**
+- ru.corp.app
+
+## Что НЕ искать
+- vds-*.corp.ru
+
+**Сайты партнёров**
+- partner.corp.ru
+
+## Выплаты
+Вне скоупа: legacy.corp.ru, old.corp.ru
+- pay.corp.ru
+"""
+    ins, out = split_scope(md)
+    assert ins == ["*.corp.ru", "android:ru.corp.app", "app.corp.ru", "pay.corp.ru"]
+    assert out == ["legacy.corp.ru", "old.corp.ru", "partner.corp.ru", "vds-*.corp.ru"]
+
+
+def test_inner_wildcards_and_schemeless_store():
+    md = ("SSRF через rentgen\\*.smailru.net; videostun*.okcdn.ru, call*-*.vkuser.net; "
+          "**bold.ru**; rustore.ru/catalog/app/ru.alfabank.oavdo.amc; "
+          "приложения ru.tinkoff.investing, com.vk.vkvideo; сайт ru.investing.com, youdrive.today")
+    assert extract(md) == sorted([
+        "rentgen*.smailru.net", "videostun*.okcdn.ru", "call*-*.vkuser.net", "bold.ru",
+        "rustore:ru.alfabank.oavdo.amc", "android:ru.tinkoff.investing", "android:com.vk.vkvideo",
+        "ru.investing.com", "youdrive.today",
+    ])

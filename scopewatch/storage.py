@@ -1,68 +1,98 @@
-"""Снапшоты: <data>/<platform>/<slug>.json. Если <data> — git-репо, каждое изменение коммитится."""
+"""SQLite: текущее состояние программ, журнал изменений, здоровье площадок. Один файл <data>/scope-watch.db."""
 
 from __future__ import annotations
 
 import json
-import re
-import subprocess
+import sqlite3
+import time
+from dataclasses import asdict
 from pathlib import Path
 
-from .models import Program
+from .models import Program, ProgramChange
 
+DB_NAME = "scope-watch.db"
 
-def _fname(slug: str) -> str:
-    return re.sub(r"[^\w.-]", "_", slug) + ".json"
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS programs (
+    platform TEXT NOT NULL,
+    slug     TEXT NOT NULL,
+    data     TEXT NOT NULL,          -- Program в JSON
+    PRIMARY KEY (platform, slug)
+);
+CREATE TABLE IF NOT EXISTS changes (
+    id       INTEGER PRIMARY KEY,
+    ts       REAL NOT NULL,
+    platform TEXT NOT NULL,
+    slug     TEXT NOT NULL,
+    kind     TEXT NOT NULL,          -- new / updated / removed
+    data     TEXT NOT NULL           -- ProgramChange в JSON (без полных снапшотов)
+);
+CREATE INDEX IF NOT EXISTS changes_program ON changes (platform, slug, ts);
+CREATE TABLE IF NOT EXISTS health (
+    platform   TEXT PRIMARY KEY,
+    fails      INTEGER NOT NULL DEFAULT 0,
+    alerted    INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT ''
+);
+"""
 
 
 class Store:
-    def __init__(self, root: Path):
-        self.root = root
-        self.root.mkdir(parents=True, exist_ok=True)
+    def __init__(self, data_dir: Path):
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.path = data_dir / DB_NAME
+        self.db = sqlite3.connect(self.path)
+        self.db.executescript(SCHEMA)
+
+    def close(self) -> None:
+        self.db.close()
+
+    # --- программы ---
 
     def load(self, platform: str) -> dict[str, Program]:
-        d = self.root / platform
-        out = {}
-        if d.is_dir():
-            for f in d.glob("*.json"):
-                p = Program.from_dict(json.loads(f.read_text(encoding="utf-8")))
-                out[p.slug] = p
-        return out
+        rows = self.db.execute("SELECT data FROM programs WHERE platform = ?", (platform,))
+        return {p.slug: p for p in (Program.from_dict(json.loads(d)) for (d,) in rows)}
 
     def save(self, platform: str, programs: list[Program]) -> None:
-        d = self.root / platform
-        d.mkdir(parents=True, exist_ok=True)
-        keep = set()
-        for p in programs:
-            name = _fname(p.slug)
-            keep.add(name)
-            (d / name).write_text(
-                json.dumps(p.to_dict(), ensure_ascii=False, indent=1, sort_keys=True) + "\n",
-                encoding="utf-8",
+        """Полная замена состояния площадки одной транзакцией."""
+        with self.db:
+            self.db.execute("DELETE FROM programs WHERE platform = ?", (platform,))
+            self.db.executemany(
+                "INSERT INTO programs (platform, slug, data) VALUES (?, ?, ?)",
+                [(platform, p.slug, json.dumps(p.to_dict(), ensure_ascii=False)) for p in programs],
             )
-        for f in d.glob("*.json"):
-            if f.name not in keep:
-                f.unlink()
 
-    # --- health: подряд идущие падения платформ ---
-    @property
-    def _health_path(self) -> Path:
-        return self.root / ".health.json"
+    # --- журнал изменений ---
+
+    def log_changes(self, changes: list[ProgramChange]) -> None:
+        now = time.time()
+        rows = []
+        for ch in changes:
+            d = asdict(ch)
+            d.pop("old")
+            p = d.pop("program")
+            d["name"], d["url"] = p["name"], p["url"]
+            rows.append((now, ch.program.platform, ch.program.slug, ch.kind, json.dumps(d, ensure_ascii=False)))
+        with self.db:
+            self.db.executemany("INSERT INTO changes (ts, platform, slug, kind, data) VALUES (?, ?, ?, ?, ?)", rows)
+
+    def history(self, limit: int = 20, slug: str | None = None) -> list[dict]:
+        q = "SELECT ts, platform, slug, kind, data FROM changes"
+        args: tuple = ()
+        if slug:
+            q, args = q + " WHERE slug = ?", (slug,)
+        rows = self.db.execute(q + " ORDER BY id DESC LIMIT ?", (*args, limit))
+        return [{"ts": ts, "platform": pl, "slug": sl, "kind": k, **json.loads(d)} for ts, pl, sl, k, d in rows]
+
+    # --- здоровье площадок ---
 
     def health(self) -> dict:
-        try:
-            return json.loads(self._health_path.read_text())
-        except (FileNotFoundError, ValueError):
-            return {}
+        rows = self.db.execute("SELECT platform, fails, alerted, last_error FROM health")
+        return {pl: {"fails": f, "alerted": bool(a), "last_error": e} for pl, f, a, e in rows}
 
     def save_health(self, h: dict) -> None:
-        self._health_path.write_text(json.dumps(h, indent=1, sort_keys=True) + "\n")
-
-    def commit(self, message: str) -> None:
-        if not (self.root / ".git").exists():
-            return
-        git = ["git", "-C", str(self.root)]
-        subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
-        if subprocess.run([*git, "diff", "--cached", "--quiet"]).returncode == 0:
-            return
-        subprocess.run([*git, "-c", "user.name=scope-watch", "-c", "user.email=scope-watch@localhost",
-                        "commit", "-q", "-m", message], check=True, capture_output=True)
+        with self.db:
+            self.db.executemany(
+                "INSERT OR REPLACE INTO health (platform, fails, alerted, last_error) VALUES (?, ?, ?, ?)",
+                [(pl, v["fails"], int(v["alerted"]), v.get("last_error", "")) for pl, v in h.items()],
+            )

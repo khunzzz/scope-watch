@@ -9,6 +9,12 @@ import ipaddress
 import re
 from urllib.parse import parse_qs, urlparse
 
+from .tlds import TLDS
+
+# Поднимать при любом изменении логики извлечения: снапшоты со старой версией
+# не сравниваются по ассетам (иначе улучшение экстрактора = поток ложных «новых ассетов»).
+VERSION = 2
+
 # расширения файлов, которые регэксп домена путает с TLD
 _FILE_EXT = {
     "pdf", "png", "jpg", "jpeg", "gif", "svg", "webp", "txt", "html", "htm", "php", "asp", "aspx",
@@ -16,36 +22,30 @@ _FILE_EXT = {
     "doc", "docx", "xls", "xlsx", "csv", "log", "py", "sh", "env", "bak", "sql", "conf", "ini", "cfg",
     "css", "map", "ts", "go", "rb", "java", "class", "jar", "war", "so", "dll", "git", "lock", "mp4",
 }
-_GTLD = {
-    "com", "net", "org", "info", "biz", "pro", "app", "dev", "cloud", "online", "site", "tech",
-    "store", "shop", "space", "digital", "games", "game", "live", "link", "chat", "team", "company",
-    "group", "zone", "sport", "market", "media", "news", "blog", "studio", "agency", "xyz", "top",
-    "club", "vip", "one", "moscow", "tatar", "host", "global", "world", "life", "network", "systems",
-    "services", "solutions", "center", "academy", "school", "education", "travel", "bank", "money",
-    "finance", "capital", "fund", "pay", "cash", "credit", "insurance", "auto", "car", "cars",
-    "delivery", "express", "health", "clinic", "pharmacy", "work", "jobs", "career", "careers",
-    "events", "tickets", "tours", "hotel", "restaurant", "food", "farm", "taxi", "toys", "kids",
-    "art", "design", "fun", "social", "email", "mobi", "name", "gov", "edu", "mil", "int", "aero",
-    "museum", "coop", "post", "tel", "travel", "rocks", "ninja", "guru", "expert", "partners",
-    "plus", "run", "page", "wiki", "website", "tools", "software", "codes", "security", "technology",
-    "рф", "рус", "москва", "дети", "сайт", "онлайн", "бел", "укр", "қаз",
-}
 # справочные сайты, которые часто встречаются в правилах, но целями не являются
 _REFERENCE = {
     "owasp.org", "mitre.org", "first.org", "nist.gov", "cve.org", "portswigger.net",
-    "hackerone.com", "bugcrowd.com", "standoff365.com", "wikipedia.org", "w3.org",
+    "hackerone.com", "bugcrowd.com", "wikipedia.org", "w3.org",
     "cvss.js", "example.com", "example.ru", "example.org", "test.com", "t.me", "telegram.me",
     "youtube.com", "youtu.be", "habr.com", "consultant.ru", "garant.ru",
 }
 
-_LABEL = r"[a-z0-9а-яё](?:[a-z0-9а-яё-]{0,61}[a-z0-9а-яё])?"
+# «*» внутри метки — шаблоны вида videostun*.okcdn.ru, call*-*.vkuser.net, vds-*.timeweb.ru
+_LABEL = r"[a-z0-9а-яё*](?:[a-z0-9а-яё*-]{0,61}[a-z0-9а-яё*])?"
 _DOMAIN = re.compile(
-    rf"(?<![\w@.-])((?:\*\.)?(?:{_LABEL}\.)+(?:[a-z]{{2,24}}|рф|рус|москва|xn--[a-z0-9-]+))(?![\w-])",
+    rf"(?<![\w@.-])((?:\*\.)?(?:{_LABEL}\.)+(?:[a-zа-яё]{{2,24}}|xn--[a-z0-9-]+))(?![\w-])",
     re.I,
 )
 _URL = re.compile(r"https?://[^\s<>()\[\]\"'`]+", re.I)
+# ссылки на сторы без схемы: rustore.ru/catalog/app/ru.x, play.google.com/store/apps/details?id=ru.x
+_STORE_NOSCHEME = re.compile(
+    r"(?<![/\w.])((?:www\.)?(?:rustore\.ru/catalog/app/|play\.google\.com/store/apps/details\?id=|"
+    r"apps\.apple\.com/\S*?/id\d|appgallery\.huawei\.com/app/)[^\s<>()\[\]\"'`]*)", re.I)
 _ALT = re.compile(r"([\w*.-]+)\.\(([a-z0-9|-]+)\)", re.I)
 _MD_LINK = re.compile(r"\[([^\]\n]*)\]\(([^)\s]*)\)")
+# ru.tinkoff.investing, com.vk.vkvideo — id Android-приложения без ссылки на стор
+_PKG = re.compile(r"(?<![\w.@/-])((?:com|ru|org|net|io|app|me|tech|kz|by|uz)(?:\.[a-z][a-z0-9_]*){1,6})(?![\w-])", re.I)
+_PKG_TAIL = {"android", "app", "mobile", "ios", "client"}
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _IP = re.compile(r"(?<![\d.])((?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}(?:/\d{1,2})?)(?![\d.])")
 
@@ -74,11 +74,11 @@ def _app_from_url(u: str) -> str | None:
 
 def _norm_domain(d: str, exclude: tuple[str, ...]) -> str | None:
     d = d.lower().strip(".")
+    d = re.sub(r"^\*+\.", "*.", d)            # **.x.ru → *.x.ru
+    d = re.sub(r"^\*+(?=[^.*])", "", d)       # **x.ru (markdown) → x.ru
     tld = d.rsplit(".", 1)[-1]
-    # 2-буквенные — ccTLD (кроме расширений файлов), длиннее — только из белого списка:
-    # иначе в ассеты лезут window.opener, user6.rules, options.authenticationscheme
-    ok_tld = (len(tld) == 2 and tld.isascii()) or tld in _GTLD or tld.startswith("xn--")
-    if not ok_tld or tld in _FILE_EXT or len(d) < 4:
+    # зона должна быть настоящей (список IANA): отсекает window.opener, boot.ini, т.д, user6.rules
+    if tld not in TLDS or tld in _FILE_EXT or len(d) < 4:
         return None
     bare = d.lstrip("*.")
     if _is_reference(bare) or any(bare == e or bare.endswith("." + e) for e in exclude):
@@ -93,6 +93,9 @@ def extract(md: str, exclude: tuple[str, ...] = ()) -> list[str]:
     found: set[str] = set()
     # [текст](url) -> "текст url": иначе «*.[tbank.ru](https://tbank.ru)» теряет wildcard
     text = _MD_LINK.sub(r"\1 \2", md)
+    text = _STORE_NOSCHEME.sub(r"https://\1", text)
+    # жирный markdown: **a.ru** → a.ru (экранированное \* — это wildcard, его не трогаем)
+    text = re.sub(r"(?<!\\)\*\*", " ", text)
 
     for u in _URL.findall(text):
         u = u.rstrip(".,;:!?*_")
@@ -113,6 +116,17 @@ def extract(md: str, exclude: tuple[str, ...] = ()) -> list[str]:
     # *.vkontakte.(ru|com) → *.vkontakte.ru *.vkontakte.com
     text = _ALT.sub(lambda m: " ".join(m.group(1) + "." + alt for alt in m.group(2).split("|")), text)
 
+    def pkg(m: re.Match) -> str:
+        tok = m.group(1).lower()
+        last = tok.rsplit(".", 1)[-1]
+        # ru.investing.com — это домен (языковой поддомен), ru.tinkoff.sme — приложение
+        if last not in TLDS or last in _PKG_TAIL or "_" in tok:
+            found.add(f"android:{tok}")
+            return " "
+        return m.group(0)
+
+    text = _PKG.sub(pkg, text)
+
     for ip in _IP.findall(text):
         # приватные/служебные адреса в правилах — это примеры и запреты, не цели
         try:
@@ -128,6 +142,47 @@ def extract(md: str, exclude: tuple[str, ...] = ()) -> list[str]:
         if nd:
             found.add(nd)
     return sorted(found)
+
+
+# --- разбивка текста на «в скоупе» / «вне скоупа» ---
+
+_OOS = re.compile(
+    r"не\s*(?:нужно\s*|надо\s*|следует\s*)?(?:иска|тестир|атак|проверя|исследова)"
+    r"|вне\s+(?:скоуп|област|рам|программ)|out[\s-]*of[\s-]*scope|not\s+in\s+scope"
+    r"|не\s+вход[яи]т|не\s+относ[яи]тся|исключени|исключа[ею]тся|не\s+рассматрива|не\s+принима"
+    r"|не\s+являются\s+цел|запрещ|excluded|exclusion|non[\s-]*qualifying|ineligible",
+    re.I,
+)
+_HEADING = re.compile(r"^\s{0,3}(?:(#{1,6})\s*(.+?)\s*#*\s*$|\*\*(.+?)\*\*\s*:?\s*$|__(.+?)__\s*:?\s*$)")
+_LABEL_LINE = re.compile(r"^\s*[-*]?\s*([^:]{3,80}):\s*(.*)$")
+_BOLD_LEVEL = 7  # жирная строка-заголовок — самый нижний уровень
+
+
+def split_scope(md: str, exclude: tuple[str, ...] = ()) -> tuple[list[str], list[str]]:
+    """Ассеты текста, разложенные по разделам: под заголовками «НЕ искать», «Out of scope»,
+    «Исключения»… — вне скоупа, остальное — в скоупе. Подзаголовок без ключевых слов наследует
+    раздел родителя. Строка «Вне скоупа: a.ru, b.ru» уходит вне скоупа, не меняя раздел.
+    Если ассет есть в обоих, считаем его в скоупе."""
+    inside, outside = [], []
+    stack: list[tuple[int, bool]] = []  # (уровень заголовка, вне скоупа?)
+    for line in (md or "").splitlines():
+        h = _HEADING.match(line)
+        if h:
+            hashes, title = h.group(1), next(g for g in h.groups()[1:] if g)
+            level = len(hashes) if hashes else _BOLD_LEVEL
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            parent_oos = stack[-1][1] if stack else False
+            stack.append((level, bool(_OOS.search(title)) or parent_oos))
+            continue
+        lab = _LABEL_LINE.match(line)
+        if lab and _OOS.search(lab.group(1)):
+            outside.append(lab.group(2))
+            continue
+        (outside if stack and stack[-1][1] else inside).append(line)
+    ins = extract("\n".join(inside), exclude)
+    out = [a for a in extract("\n".join(outside), exclude) if a not in set(ins)]
+    return ins, out
 
 
 # --- нормализация для сравнения между платформами ---

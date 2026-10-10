@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import time
 
-from ..assets import extract
+from ..assets import VERSION as EXTRACTOR_VERSION, split_scope
 from ..http import Client
 from ..models import SEVERITIES, Program
 
 NAME = "standoff"
 TITLE = "Standoff 365"
 BASE = "https://bugbounty.standoff365.com"
+# ссылки на доки/VPN площадки в правилах чужих программ — не ассеты;
+# но у программы самой площадки это и есть скоуп
 EXCLUDE = ("standoff365.com",)
+OWN_SLUGS = {"standoff-365"}
 REWARD_TTL = 6 * 3600
 MAX_PAGES = 50
 
@@ -41,6 +44,7 @@ def _rewards(reward: dict | None) -> dict[str, list[int]]:
 def parse(p: dict) -> Program:
     md = _scope_md(p)
     status = p.get("status") or ""
+    assets, oos = split_scope(md, () if p["slug"] in OWN_SLUGS else EXCLUDE)
     return Program(
         platform=NAME,
         slug=p["slug"],
@@ -48,8 +52,10 @@ def parse(p: dict) -> Program:
         url=f"{BASE}/programs/{p['slug']}",
         active=status == "published" and not p.get("finished") and not p.get("archivedAt"),
         status="finished" if p.get("finished") else status,
-        assets=extract(md, EXCLUDE),
+        assets=assets,
+        out_of_scope=oos,
         scope_md=md,
+        meta={"extractor": EXTRACTOR_VERSION},
         updated_at=p.get("updatedAt") or "",
     )
 

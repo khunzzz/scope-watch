@@ -1,0 +1,23 @@
+services:
+  scope-watch:
+    build: .
+    container_name: scope-watch
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    # даём текущему прогону дописать снапшоты при docker stop
+    stop_grace_period: 5m
+    # контейнеру не нужно ничего, кроме исходящей сети и записи в /data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

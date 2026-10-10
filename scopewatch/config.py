@@ -27,6 +27,8 @@ class Settings:
     request_delay: float = 0.4
     fail_alert_after: int = 3     # после скольких падений подряд слать ⚠️
     min_ratio: float = 0.7        # программ стало меньше 70% от прошлого → ответ битый
+    interval: int = 900           # секунд между прогонами в режиме loop
+    heartbeat: Path | None = None  # файл, который loop трогает после каждого прогона (healthcheck)
 
     @property
     def has_telegram(self) -> bool:
@@ -39,7 +41,9 @@ class Settings:
         return cls(
             tg_token=env.get("TG_BOT_TOKEN"),
             tg_chat_id=env.get("TG_CHAT_ID"),
-            data_dir=Path(env.get("SCOPEWATCH_DATA", PROJECT_ROOT / "snapshots")),
+            data_dir=Path(env.get("SCOPEWATCH_DATA", PROJECT_ROOT / "data")),
             request_delay=float(env.get("SCOPEWATCH_DELAY", 0.4)),
             fail_alert_after=int(env.get("SCOPEWATCH_FAIL_ALERT", 3)),
+            interval=int(env.get("SCOPEWATCH_INTERVAL", 900)),
+            heartbeat=Path(env["SCOPEWATCH_HEARTBEAT"]) if env.get("SCOPEWATCH_HEARTBEAT") else None,
         )

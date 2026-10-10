@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..assets import extract
+from ..assets import VERSION as EXTRACTOR_VERSION, extract, split_scope
 from ..http import Client
 from ..models import SEVERITIES, Program
 
@@ -10,7 +10,9 @@ NAME = "bizone"
 TITLE = "BI.ZONE"
 BASE = "https://bugbounty.bi.zone"
 API = f"{BASE}/api/bug-bounty"
-EXCLUDE = ("bugbounty.bi.zone",)
+# bi.zone упоминается в правилах чужих программ как ссылка; в задачах (явный скоуп) не фильтруем
+EXCLUDE = ("bi.zone",)
+OWN_SLUGS = {"bi-zone-bug-bounty"}
 PAGE = 100
 
 
@@ -23,7 +25,7 @@ def task_assets(t: dict) -> list[str]:
     """Задача = группа скоупа: textTask — название («Critical-ресурсы»), хосты — в description.
     Если хостов нет (продукт, «Android App» без ссылки) — ассетом считается само название."""
     title = " ".join((t.get("textTask") or "").split())
-    found = extract(f"{title}\n{t.get('description') or ''}", EXCLUDE)
+    found = extract(f"{title}\n{t.get('description') or ''}")
     items = found or ([title[:120]] if title else [])
     if t.get("inScope", True) and not t.get("eligibility", True):
         items = [f"{a} (без выплат)" for a in items]
@@ -48,7 +50,9 @@ def parse(d: dict, versions: list[dict] | None = None, tasks: list[dict] | None 
         oos = sorted({a for t in live if not t.get("inScope", True) for a in task_assets(t)})
         source = "structured"
     else:
-        assets, oos, source = extract(_scope_md(d), EXCLUDE), [], "text"
+        exclude = () if d["slug"] in OWN_SLUGS else EXCLUDE
+        assets, oos = split_scope(_scope_md(d), exclude)
+        source = "text"
     rewards = {}
     for sev in SEVERITIES:
         cap = sev.capitalize()
@@ -73,6 +77,7 @@ def parse(d: dict, versions: list[dict] | None = None, tasks: list[dict] | None 
         assets_source=source,
         scope_md=md,
         versions=vers,
+        meta={"extractor": EXTRACTOR_VERSION},
         updated_at=upd,
     )
 

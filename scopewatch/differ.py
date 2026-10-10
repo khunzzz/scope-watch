@@ -34,8 +34,11 @@ def compare(old: Program, new: Program) -> ProgramChange:
     if old.name != new.name:
         ch.renamed_from = old.name
 
-    # сменился источник ассетов (текст ↔ API) — списки несравнимы, был бы ложный дифф
-    if old.assets_source == new.assets_source:
+    # сменился источник ассетов (текст ↔ API) или версия экстрактора — списки несравнимы,
+    # был бы ложный дифф; реальные правки всё равно видны в диффе текста
+    same_basis = (old.assets_source == new.assets_source
+                  and old.meta.get("extractor") == new.meta.get("extractor"))
+    if same_basis:
         ch.assets_added = sorted(set(new.assets) - set(old.assets))
         ch.assets_removed = sorted(set(old.assets) - set(new.assets))
         ch.oos_added = sorted(set(new.out_of_scope) - set(old.out_of_scope))
@@ -52,6 +55,26 @@ def compare(old: Program, new: Program) -> ProgramChange:
     if old.scope_md != new.scope_md:
         ch.text_diff = text_diff(old.scope_md, new.scope_md)
     return ch
+
+
+MISSING_RUNS = 2  # сколько прогонов подряд программы нет в списке, прежде чем сказать «пропала»
+
+
+def carry_missing(old: dict[str, Program], new: list[Program]) -> list[Program]:
+    """Пагинация может «потерять» программу на один прогон (список сдвинулся между страницами).
+    Такую программу переносим из прошлого снапшота со счётчиком пропусков; «пропала» — только
+    когда её нет MISSING_RUNS прогонов подряд."""
+    present = {p.slug for p in new}
+    carried = []
+    for slug, o in old.items():
+        if slug in present:
+            continue
+        misses = o.meta.get("missing", 0) + 1
+        if misses < MISSING_RUNS:
+            c = Program.from_dict(o.to_dict())
+            c.meta["missing"] = misses
+            carried.append(c)
+    return new + carried
 
 
 def diff_platform(old: dict[str, Program], new: list[Program]) -> list[ProgramChange]:

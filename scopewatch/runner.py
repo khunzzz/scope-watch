@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from . import render
 from .config import Settings
-from .differ import diff_platform
+from .differ import carry_missing, diff_platform
 from .http import Client
 from .linker import Linker
 from .models import Program, ProgramChange
@@ -16,6 +16,10 @@ from .sources import SOURCES, TITLES
 from .storage import Store
 
 log = logging.getLogger("scope-watch")
+
+MIN_DROP = 5        # «список подозрительно короткий» — пропало и >30%, и больше 5 программ
+MASS_MIN = 10       # массовым считаем изменение > max(10, 30% программ площадки) за один прогон
+MASS_RATIO = 0.3
 
 
 @dataclass
@@ -45,7 +49,8 @@ def collect(settings: Settings, store: Store, platforms: list[str]) -> dict[str,
             new = SOURCES[name].fetch(client, c.prev)
             if not new:
                 raise RuntimeError("пустой список программ")
-            if c.prev and len(new) < settings.min_ratio * len(c.prev):
+            dropped = len(c.prev) - len(new)
+            if c.prev and len(new) < settings.min_ratio * len(c.prev) and dropped > MIN_DROP:
                 raise RuntimeError(f"подозрительно мало программ: {len(new)} против {len(c.prev)}")
             c.new = new
             log.info("%s: %d программ", name, len(new))
@@ -77,7 +82,14 @@ def update_health(settings: Settings, health: dict, collected: dict[str, Collect
 def run(settings: Settings, notifier: Notifier, *, platforms: list[str] | None = None,
         seed: bool = False, dry_run: bool = False) -> RunResult:
     store = Store(settings.data_dir)
-    platforms = platforms or list(SOURCES)
+    try:
+        return _run(settings, notifier, store, platforms or list(SOURCES), seed, dry_run)
+    finally:
+        store.close()
+
+
+def _run(settings: Settings, notifier: Notifier, store: Store, platforms: list[str],
+         seed: bool, dry_run: bool) -> RunResult:
     collected = collect(settings, store, platforms)
 
     # склейка по актуальному состоянию всех платформ (включая не опрошенные в этот раз)
@@ -86,15 +98,24 @@ def run(settings: Settings, notifier: Notifier, *, platforms: list[str] | None =
     linker = Linker([p for p in everything if p.active])
 
     result = RunResult()
+    per_company: list[ProgramChange] = []
+    mass_messages: list[str] = []
     for name, c in collected.items():
         if c.new is None:
             continue
         if seed or not c.prev:
             result.seeded.append(f"{TITLES[name]}: {len(c.new)} программ ({sum(p.active for p in c.new)} активных)")
             continue
-        result.changes += diff_platform(c.prev, c.new)
+        c.new = carry_missing(c.prev, c.new)
+        changes = diff_platform(c.prev, c.new)
+        if len(changes) > max(MASS_MIN, MASS_RATIO * len(c.prev)):
+            # площадка поменяла формат/вёрстку — одно сводное сообщение вместо сотни
+            mass_messages.append(render.mass_change(name, changes))
+        else:
+            per_company += changes
+        result.changes += changes
 
-    result.messages = render.render(result.changes, linker)
+    result.messages = render.render(per_company, linker) + mass_messages
     if result.seeded:
         result.messages.append(render.seeded_summary(result.seeded))
     health = store.health()
@@ -110,8 +131,6 @@ def run(settings: Settings, notifier: Notifier, *, platforms: list[str] | None =
             if c.new is not None:
                 store.save(name, c.new)
         store.save_health(health)
-        summary = ", ".join(f"{ch.program.key}" for ch in result.changes[:20])
-        store.commit(f"{len(result.changes)} changes: {summary}" if result.changes
-                     else ("seed" if result.seeded else "refresh"))
+        store.log_changes(result.changes)
     log.info("готово: изменений %d, сообщений %d", len(result.changes), len(result.messages))
     return result

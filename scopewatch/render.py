@@ -166,6 +166,18 @@ def render(changes: list[ProgramChange], linker: Linker) -> list[str]:
     return messages
 
 
+def mass_change(platform: str, changes: list[ProgramChange]) -> str:
+    kinds = {"new": "🆕 новые", "removed": "🗑 пропали", "updated": "🔔 изменились"}
+    lines = [f"⚠️ <b>{escape(TITLES[platform])}</b>: за один прогон изменилось сразу {len(changes)} программ. "
+             "Похоже, площадка поменяла формат. Поштучно не рассылаю, детали: <code>scope-watch history</code>."]
+    for kind, title in kinds.items():
+        names = [c.program.name for c in changes if c.kind == kind]
+        if names:
+            shown = ", ".join(names[:25]) + (f" …ещё {len(names) - 25}" if len(names) > 25 else "")
+            lines.append(f"{title} ({len(names)}): {escape(shown)}")
+    return "\n".join(lines)
+
+
 def seeded_summary(lines: list[str]) -> str:
     return "🌱 <b>scope-watch</b>: база сохранена, по ней уведомлений не будет.\n" + "\n".join(lines)
 
