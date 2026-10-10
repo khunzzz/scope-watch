@@ -98,3 +98,13 @@ def test_huge_change_fits_telegram(so_raw):
     new = standoff.parse(dict(copy.deepcopy(so_raw["flowwow"]), description=lines))
     msgs = render(diff_platform({old.slug: old}, [new]), Linker([new]))
     assert all(len(m) < 4096 for m in msgs) and MESSAGE_MAX < 4096
+
+
+def test_truncation_never_cuts_html_entity(so_raw):
+    # обрезка после escape резала «&amp;» до «&am» → Telegram не парсит разметку
+    from scopewatch.models import ProgramChange
+    p = standoff.parse(so_raw["flowwow"])
+    p.out_of_scope = ["x" * 396 + " & <b>"]
+    [msg] = render([ProgramChange(kind="new", program=p)], Linker([p]))
+    line = next(ln for ln in msg.splitlines() if ln.startswith("Out of scope"))
+    assert line.endswith("x &amp; &lt;") and "<b>" not in line

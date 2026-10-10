@@ -74,7 +74,7 @@ def _section(ch: ProgramChange, peers: list[Program]) -> str:
         else:
             lines.append("Ассеты из текста не извлеклись, смотри описание.")
         if p.out_of_scope:
-            lines.append("Out of scope: " + escape(", ".join(p.out_of_scope))[:400])
+            lines.append("Out of scope: " + escape(", ".join(p.out_of_scope)[:400]))
         return head + "\n" + "\n".join(lines)
 
     if ch.kind == "removed":
