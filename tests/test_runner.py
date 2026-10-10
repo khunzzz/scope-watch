@@ -12,10 +12,13 @@ from scopewatch.sources import standoff
 
 
 class Collect:
-    def __init__(self):
+    def __init__(self, fail_after=None):
         self.sent = []
+        self.fail_after = fail_after     # сколько сообщений «дойдёт» до падения Telegram
 
     def send(self, html):
+        if self.fail_after is not None and len(self.sent) >= self.fail_after:
+            raise ConnectionError("telegram down")
         self.sent.append(html)
 
 
@@ -214,3 +217,38 @@ def test_point_failures_tolerated_mass_failure_is_platform_down(env):
         runner.run(settings, out)
     assert len(out.sent) == 1 and "⚠️" in out.sent[0] and "не загрузились 3 из 10" in out.sent[0]
     assert runner.Store(settings.data_dir).load("standoff")["p6"].active
+
+
+def test_telegram_failure_mid_batch_no_duplicates_no_losses(env):
+    settings, state, so_raw = env
+    runner.run(settings, Collect())
+    state["programs"][0].active = False                         # 🔒 flowwow
+    state["programs"].append(standoff.parse(so_raw["anyquery"]))  # 🆕 anyquery
+    state["programs"].append(standoff.parse(so_raw["tbank"]))     # 🆕 tbank
+    out = Collect(fail_after=1)
+    res = runner.run(settings, out)
+    assert len(out.sent) == 1 and res.unsent == 2
+    first = out.sent[0]
+
+    out = Collect(fail_after=0)                     # Telegram лежит целиком — ничего не теряем
+    assert runner.run(settings, out).unsent == 2
+
+    out = Collect()
+    res = runner.run(settings, out)                 # без новых событий: досылаем остаток
+    assert len(out.sent) == 2 and first not in out.sent and res.unsent == 0
+    out = Collect()
+    runner.run(settings, out)
+    assert out.sent == []
+
+
+def test_dry_run_does_not_consume_queue(env):
+    settings, state, so_raw = env
+    runner.run(settings, Collect())
+    state["programs"].append(standoff.parse(so_raw["anyquery"]))
+    runner.run(settings, Collect(fail_after=0))     # сообщение застряло в очереди
+    out = Collect()
+    runner.run(settings, out, dry_run=True)
+    assert out.sent == []                           # dry-run показывает только свой прогон
+    out = Collect()
+    runner.run(settings, out)
+    assert len(out.sent) == 1 and "AnyQuery" in out.sent[0]

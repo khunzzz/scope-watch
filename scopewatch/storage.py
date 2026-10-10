@@ -1,4 +1,5 @@
-"""SQLite: текущее состояние программ, журнал изменений, здоровье площадок. Один файл <data>/scope-watch.db."""
+"""SQLite: текущее состояние программ, журнал изменений, здоровье площадок, очередь сообщений.
+Один файл <data>/scope-watch.db."""
 
 from __future__ import annotations
 
@@ -34,6 +35,11 @@ CREATE TABLE IF NOT EXISTS health (
     alerted    INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS outbox (
+    id   INTEGER PRIMARY KEY,
+    ts   REAL NOT NULL,
+    html TEXT NOT NULL               -- готовое сообщение, ждёт отправки
+);
 """
 
 
@@ -53,18 +59,39 @@ class Store:
         rows = self.db.execute("SELECT data FROM programs WHERE platform = ?", (platform,))
         return {p.slug: p for p in (Program.from_dict(json.loads(d)) for (d,) in rows)}
 
-    def save(self, platform: str, programs: list[Program]) -> None:
-        """Полная замена состояния площадки одной транзакцией."""
+    def commit_run(self, snapshots: dict[str, list[Program]], health: dict,
+                   changes: list[ProgramChange], messages: list[str]) -> None:
+        """Итог прогона одной транзакцией: снапшоты площадок, здоровье, журнал и очередь сообщений.
+        Если процесс убьют посередине, не будет ни сохранённого состояния без сообщений
+        (= потерянные события), ни сообщений без состояния (= дубли)."""
         with self.db:
-            self.db.execute("DELETE FROM programs WHERE platform = ?", (platform,))
-            self.db.executemany(
-                "INSERT INTO programs (platform, slug, data) VALUES (?, ?, ?)",
-                [(platform, p.slug, json.dumps(p.to_dict(), ensure_ascii=False)) for p in programs],
-            )
+            for platform, programs in snapshots.items():
+                self._save(platform, programs)
+            self._save_health(health)
+            self._log_changes(changes)
+            now = time.time()
+            self.db.executemany("INSERT INTO outbox (ts, html) VALUES (?, ?)", [(now, m) for m in messages])
+
+    def _save(self, platform: str, programs: list[Program]) -> None:
+        """Полная замена состояния площадки (транзакция — в commit_run)."""
+        self.db.execute("DELETE FROM programs WHERE platform = ?", (platform,))
+        self.db.executemany(
+            "INSERT INTO programs (platform, slug, data) VALUES (?, ?, ?)",
+            [(platform, p.slug, json.dumps(p.to_dict(), ensure_ascii=False)) for p in programs],
+        )
+
+    # --- очередь сообщений ---
+
+    def outbox(self) -> list[tuple[int, str]]:
+        return list(self.db.execute("SELECT id, html FROM outbox ORDER BY id"))
+
+    def outbox_done(self, msg_id: int) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM outbox WHERE id = ?", (msg_id,))
 
     # --- журнал изменений ---
 
-    def log_changes(self, changes: list[ProgramChange]) -> None:
+    def _log_changes(self, changes: list[ProgramChange]) -> None:
         now = time.time()
         rows = []
         for ch in changes:
@@ -73,8 +100,7 @@ class Store:
             p = d.pop("program")
             d["name"], d["url"] = p["name"], p["url"]
             rows.append((now, ch.program.platform, ch.program.slug, ch.kind, json.dumps(d, ensure_ascii=False)))
-        with self.db:
-            self.db.executemany("INSERT INTO changes (ts, platform, slug, kind, data) VALUES (?, ?, ?, ?, ?)", rows)
+        self.db.executemany("INSERT INTO changes (ts, platform, slug, kind, data) VALUES (?, ?, ?, ?, ?)", rows)
 
     def history(self, limit: int = 20, slug: str | None = None) -> list[dict]:
         q = "SELECT ts, platform, slug, kind, data FROM changes"
@@ -90,9 +116,8 @@ class Store:
         rows = self.db.execute("SELECT platform, fails, alerted, last_error FROM health")
         return {pl: {"fails": f, "alerted": bool(a), "last_error": e} for pl, f, a, e in rows}
 
-    def save_health(self, h: dict) -> None:
-        with self.db:
-            self.db.executemany(
-                "INSERT OR REPLACE INTO health (platform, fails, alerted, last_error) VALUES (?, ?, ?, ?)",
-                [(pl, v["fails"], int(v["alerted"]), v.get("last_error", "")) for pl, v in h.items()],
-            )
+    def _save_health(self, h: dict) -> None:
+        self.db.executemany(
+            "INSERT OR REPLACE INTO health (platform, fails, alerted, last_error) VALUES (?, ?, ?, ?)",
+            [(pl, v["fails"], int(v["alerted"]), v.get("last_error", "")) for pl, v in h.items()],
+        )

@@ -45,8 +45,8 @@ def cmd_run(s: Settings, a) -> int:
     if not a.dry_run and not s.has_telegram:
         logging.error("нужны TG_BOT_TOKEN и TG_CHAT_ID (env или .env); для проверки — --dry-run")
         return 2
-    run(s, _notifier(s, a.dry_run), platforms=a.only, dry_run=a.dry_run)
-    return 0
+    res = run(s, _notifier(s, a.dry_run), platforms=a.only, dry_run=a.dry_run)
+    return 1 if res.unsent else 0
 
 
 def cmd_loop(s: Settings, a) -> int:
@@ -75,8 +75,9 @@ def cmd_loop(s: Settings, a) -> int:
     while not stop:
         started = time.monotonic()
         try:
-            run(s, notifier)
-            if s.heartbeat:
+            res = run(s, notifier)
+            # Telegram недоступен (сообщения копятся в очереди) — пусть healthcheck это покажет
+            if s.heartbeat and not res.unsent:
                 s.heartbeat.touch()
         except Exception:  # noqa: BLE001 — один упавший прогон не должен ронять контейнер
             logging.exception("прогон упал, попробую в следующий раз")

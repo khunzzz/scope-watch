@@ -34,6 +34,7 @@ class RunResult:
     messages: list[str] = field(default_factory=list)
     changes: list[ProgramChange] = field(default_factory=list)
     seeded: list[str] = field(default_factory=list)
+    unsent: int = 0     # сообщений осталось в очереди (Telegram недоступен)
 
 
 def collect(settings: Settings, store: Store, platforms: list[str]) -> dict[str, Collected]:
@@ -123,19 +124,32 @@ def _run(settings: Settings, notifier: Notifier, store: Store, platforms: list[s
     result.messages = render.render(per_company, linker) + mass_messages
     if result.seeded:
         result.messages.append(render.seeded_summary(result.seeded))
+    if dry_run:
+        for m in result.messages:
+            notifier.send(m)
+        log.info("dry-run: изменений %d, сообщений %d", len(result.changes), len(result.messages))
+        return result
+
     health = store.health()
-    if not dry_run:
-        result.messages = update_health(settings, health, collected) + result.messages
-
-    # сначала отправка, потом сохранение: если Telegram упал, события придут в следующий прогон
-    for m in result.messages:
-        notifier.send(m)
-
-    if not dry_run:
-        for name, c in collected.items():
-            if c.new is not None:
-                store.save(name, c.new)
-        store.save_health(health)
-        store.log_changes(result.changes)
+    result.messages = update_health(settings, health, collected) + result.messages
+    # сначала состояние + очередь сообщений (одна транзакция), потом отправка из очереди:
+    # упавший посреди пачки Telegram не теряет события и не дублирует уже отправленные
+    store.commit_run({name: c.new for name, c in collected.items() if c.new is not None},
+                     health, result.changes, result.messages)
+    result.unsent = flush(store, notifier)
     log.info("готово: изменений %d, сообщений %d", len(result.changes), len(result.messages))
     return result
+
+
+def flush(store: Store, notifier: Notifier) -> int:
+    """Шлёт очередь по порядку. На первой ошибке останавливается: остаток уйдёт в следующий
+    прогон в том же порядке. Возвращает, сколько сообщений осталось."""
+    pending = store.outbox()
+    for i, (msg_id, html) in enumerate(pending):
+        try:
+            notifier.send(html)
+        except Exception as e:  # noqa: BLE001 — любая ошибка отправки: попробуем в следующий раз
+            log.error("отправка не удалась, в очереди %d сообщений: %s", len(pending) - i, e)
+            return len(pending) - i
+        store.outbox_done(msg_id)
+    return 0
