@@ -1,0 +1,498 @@
+{
+ "kaspersky": [
+  {
+   "id": 1796,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/vpn-secure-connection",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Secure Connection",
+   "modificationDate": "2026-04-15T12:03:22.837068Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1795,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/password-manager#installation",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Password Manager",
+   "modificationDate": "2026-04-15T12:03:06.721580Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1794,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/small-to-medium-business-security/downloads/endpoint",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Endpoint Security for Linux",
+   "modificationDate": "2026-04-15T12:02:24.094006Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1793,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/small-to-medium-business-security/downloads/endpoint",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Endpoint Security for Windows",
+   "modificationDate": "2026-04-15T12:01:56.444547Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1792,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/premium",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Premium",
+   "modificationDate": "2026-04-15T12:01:17.730474Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1791,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/plus",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Plus",
+   "modificationDate": "2026-04-15T11:58:23.531685Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1790,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "cr",
+   "description": "https://www.kaspersky.com/standard",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Kaspersky Standard",
+   "modificationDate": "2026-04-15T11:57:57.884254Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1803,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "https://www.kaspersky.ru",
+   "eligibility": false,
+   "inScope": true,
+   "textTask": "Остальные продукты",
+   "modificationDate": "2026-04-15T12:07:14.669652Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1802,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Обход лицензионных ограничений приложений «Лаборатории Касперского» без влияния на безопасность законных пользователей.",
+   "modificationDate": "2026-04-15T12:06:02.974169Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1801,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "https://support.kaspersky.ru",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Отчеты о необнаруженном вредоносном ПО. Пожалуйста, отправляйте такие отчеты в техническую поддержку «Лаборатории Касперского»",
+   "modificationDate": "2026-04-15T12:05:42.270145Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1800,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Локальные атаки, изначально выполненные с административными (или более высокими) привилегиями.",
+   "modificationDate": "2026-04-15T12:05:09.344689Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1799,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Уязвимости в стороннем программном обеспечении (библиотеки, операционные системы и т.д.).",
+   "modificationDate": "2026-04-15T12:04:49.398184Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1798,
+   "company": {
+    "slug": "kaspersky"
+   },
+   "criticalType": "in",
+   "description": "",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Онлайн-сервисы и сайты «Лаборатории Касперского», а также другие сетевые службы.",
+   "modificationDate": "2026-04-15T12:04:28.252446Z",
+   "rank": 0,
+   "inArchive": false
+  }
+ ],
+ "tbank": [
+  {
+   "id": 883,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "AI ассистенты, Чат-бот, Толк-бот, Умная камера, T-Fusion, VoiceKit",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "AI Products",
+   "modificationDate": "2024-10-18T15:32:31.177041Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 131,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "api-travel.tinkoff.ru\r\nwww.tinkoff.ru (/travel/*, /api/travel/*)",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Travel",
+   "modificationDate": "2023-04-03T08:11:57.961809Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 130,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "tmsg.tinkoff.ru\nSecondary domains: webim.tinkoff.ru\nchat.tinkoff.ru\nchat-cms.tinkoff.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Messenger",
+   "modificationDate": "2022-12-30T16:01:19.733503Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 129,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "weboffice.tinkoff.ru\ntcrm-api-wo.tinkoff.ru\ntcrm-app-wo.tinkoff.ru\ncrmp.tinkoff.ru\ncrm-sme-service-wo.tinkoff.ru\ncrm-tm-service-wo.tinkoff.ru\ncrmv-wo.tinkoff.ru\ntcrm-ins-wo.tinkoff.ru\ntcrm-queue-admin.tinkoff.ru\nSecondary domains: rabota.tinkoff.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Work",
+   "modificationDate": "2022-12-30T16:01:19.718125Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 128,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "api.tinkoffinsurance.ru\nbroker-api.tinkofinsurance.ru\nwww.tinkoffinsurance.ru\nwww.tinkoff.ru (/insurance/*)\nSecondary domains: partner.tinkoffinsurance.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Insurance",
+   "modificationDate": "2022-12-30T16:01:19.656765Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 124,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "business.tinkoff.ru\nwww.tinkoff.ru (/business/*, /api/business/*, /api/openapi/*)\nhttps://play.google.com/store/apps/details?id=ru.tinkoff.sme&hl=ru&gl=US\nhttps://play.google.com/store/apps/details?id=ru.tinkoff.accounting&hl=ru&gl=US\nhttps://apps.apple.com/ru/app/тинькофф-бизнес/id1031837973\nhttps://apps.apple.com/ru/app/тинькофф-бухгалтерия-для-ип/id1239730629",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Business",
+   "modificationDate": "2022-12-30T16:01:19.631334Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 125,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "id.tinkoff.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff ID",
+   "modificationDate": "2022-12-30T16:01:19.619531Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 127,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "tapi.tinkoff.ru\nfiles-tapi.tinkoff.ru\nwww.tinkoff.ru (/mobile-operator/*, /api/mobile-operator/*, /api/mobile-operator-files/*)\nhttps://play.google.com/store/apps/details?id=ru.tinkoff.mvno&hl=ru&gl=US\nhttps://apps.apple.com/ru/app/тинькофф-мобайл-запись-звонков/id1255182214",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Mobile",
+   "modificationDate": "2022-12-30T16:01:19.601288Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 126,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "securepay.tinkoff.ru\nsecure.tinkoff.ru\nidcm.tinkoff.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Payments",
+   "modificationDate": "2022-12-30T15:57:26.903373Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 123,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "api-invest.tinkoff.ru\nwww.tinkoff.ru (/invest/*, /invest-terminal/*, /terminal/*, /api/trading/*, /api/invest-gw/*, /api/invest/*)\nhttps://play.google.com/store/apps/details?id=ru.tinkoff.investing&hl=ru&gl=US\nhttps://apps.apple.com/ru/app/тинькофф-инвестиции-брокер/id1183786286",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Investments",
+   "modificationDate": "2022-12-29T11:47:49.373780Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 122,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "cr",
+   "description": "api.tinkoff.ru\napi-common.tinkoff.ru\nwww.tinkoff.ru\nhttps://apps.apple.com/ru/app/тинькофф-мобильный-банк/id455652438\nhttps://play.google.com/store/apps/details?id=com.idamob.tinkoff.android&hl=ru&gl=US",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Bank",
+   "modificationDate": "2022-12-29T11:47:49.079231Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 132,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "hg",
+   "description": "journal.tinkoff.ru\r\n*.journal.tinkoff.ru\r\nj.tinkoff.ru\r\n*.tinkoffjournal.ru\r\nhttps://play.google.com/store/apps/details?id=ru.tinkoff.invest.course\r\nhttps://play.google.com/store/apps/details?id=com.tjuraniaapp\r\nhttps://apps.apple.com/ru/app/инвест-учебник-акции-и-биржа/id1562821703\r\nhttps://apps.apple.com/ru/app/тинькофф-журнал/id1518001692",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Tinkoff Journal (Уменьшенные выплаты)",
+   "modificationDate": "2023-04-03T08:11:57.949068Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 133,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "hg",
+   "description": "*.tinkoff.ru\r\n*.tcsbank.ru\r\n*.tinkoffinsurance.ru",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Other Scope (Уменьшенные выплаты)",
+   "modificationDate": "2023-04-03T08:11:57.934425Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 831,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "md",
+   "description": "unidraw.io",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Side Services",
+   "modificationDate": "2026-07-28T11:37:46.806882Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1938,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "in",
+   "description": "karmic-help.tinkoff.ru",
+   "eligibility": false,
+   "inScope": true,
+   "textTask": "Волонтерский сервис",
+   "modificationDate": "2026-07-28T11:42:35.258955Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 1678,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "in",
+   "description": "cdn.tbank.ru/static/documents/\ncdn.t-capital-funds.ru/static/documents/\nacdn.tinkoff.ru/static/documents/\nopis-cdn.tinkoffjournal.ru/mercury/",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Out of Scope",
+   "modificationDate": "2026-01-14T12:04:05.509108Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 462,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "in",
+   "description": "https://github.com/Tinkoff/sage-community",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Sage Community",
+   "modificationDate": "2023-07-06T07:37:47.346755Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 461,
+   "company": {
+    "slug": "tbank"
+   },
+   "criticalType": "in",
+   "description": "ctf.tinkoff.ru",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "CTF",
+   "modificationDate": "2023-07-06T07:37:47.322359Z",
+   "rank": 0,
+   "inArchive": false
+  }
+ ],
+ "vkontakte": [
+  {
+   "id": 37,
+   "company": {
+    "slug": "vkontakte"
+   },
+   "criticalType": "cr",
+   "description": "vk.com, m.vk.com, api.vk.com, login.vk.com, oauth.vk.com\r\n*.vk.me\r\n*.vk.cc\r\n*.vk.link\r\nid.vk.com\r\n*.vkontakte.(ru|com), *.vk-cdn.net, *.userapi.com, *.vkuser.net, *.vkuseraudio.(com|net), *.vkuservideo.(com|net), *.vkuserlive.(com|net)",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Domain",
+   "modificationDate": "2023-05-15T18:08:10.917798Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 40,
+   "company": {
+    "slug": "vkontakte"
+   },
+   "criticalType": "cr",
+   "description": "https://play.google.com/store/apps/details?id=com.vkontakte.android",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "Android App",
+   "modificationDate": "2022-11-17T09:05:23.840276Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 38,
+   "company": {
+    "slug": "vkontakte"
+   },
+   "criticalType": "cr",
+   "description": "https://apps.apple.com/ru/app/id564177498",
+   "eligibility": true,
+   "inScope": true,
+   "textTask": "IOS App",
+   "modificationDate": "2022-11-17T09:05:23.818375Z",
+   "rank": 0,
+   "inArchive": false
+  },
+  {
+   "id": 39,
+   "company": {
+    "slug": "vkontakte"
+   },
+   "criticalType": "in",
+   "description": "",
+   "eligibility": false,
+   "inScope": false,
+   "textTask": "Other",
+   "modificationDate": "2024-05-25T04:45:40.690774Z",
+   "rank": 0,
+   "inArchive": false
+  }
+ ]
+}

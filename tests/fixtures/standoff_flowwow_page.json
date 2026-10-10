@@ -1,0 +1,27 @@
+{
+ "reward": {
+  "programId": 414,
+  "currency": "rub",
+  "onlyMaxPayment": false,
+  "none": {
+   "minReward": 0,
+   "maxReward": 0
+  },
+  "low": {
+   "minReward": 5000,
+   "maxReward": 10000
+  },
+  "medium": {
+   "minReward": 10000,
+   "maxReward": 20000
+  },
+  "high": {
+   "minReward": 20000,
+   "maxReward": 50000
+  },
+  "critical": {
+   "minReward": 50000,
+   "maxReward": 70000
+  }
+ }
+}

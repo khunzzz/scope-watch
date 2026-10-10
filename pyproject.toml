@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scope-watch"
+version = "0.1.0"
+description = "Мониторинг скоупов bug bounty программ Standoff 365 и BI.ZONE с уведомлениями в Telegram"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+scope-watch = "scopewatch.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["scopewatch*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
