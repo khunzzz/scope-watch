@@ -86,32 +86,40 @@ def parse(d: dict, versions: list[dict] | None = None, tasks: list[dict] | None 
     )
 
 
+def _paginate(c: Client, url: str) -> list[dict]:
+    """Все страницы DRF (limit/offset) с проверкой целостности. Offset-пагинация на живом
+    списке теряет элементы: удалили/заархивировали задачу между страницами — следующая
+    страница сдвигается, и одна задача пропадает (= ложное «ассет убран», потом «добавлен»).
+    Поэтому count не должен меняться за проход, а уникальных id должно быть ровно count.
+    Не сошлось — ещё одна попытка, потом ошибка (площадка «упала» на этот прогон)."""
+    for _ in range(2):
+        by_id: dict = {}
+        counts = set()
+        offset = 0
+        while True:
+            page = c.json(url, params={"limit": PAGE, "offset": offset})
+            res = page.get("results") or []
+            counts.add(page.get("count"))
+            by_id.update((x["id"], x) for x in res)
+            offset += PAGE
+            if not page.get("next") or not res:
+                break
+        if counts == {len(by_id)}:
+            return list(by_id.values())
+    raise RuntimeError(f"{url}: список менялся во время пагинации (count {counts}, получено {len(by_id)})")
+
+
 def list_raw(c: Client) -> list[dict]:
-    out, offset = [], 0
-    while True:
-        page = c.json(f"{API}/companies/", params={"limit": PAGE, "offset": offset})
-        res = page.get("results") or []
-        out.extend(x for x in res if x.get("public", True))
-        offset += PAGE
-        if not page.get("next") or not res:
-            break
-    return out
+    return [x for x in _paginate(c, f"{API}/companies/") if x.get("public", True)]
 
 
 def tasks_by_company(c: Client) -> dict[str, list[dict]]:
     """«Задачи» = структурированный скоуп всех публичных программ, одним списком."""
     out: dict[str, list[dict]] = {}
-    offset = 0
-    while True:
-        page = c.json(f"{API}/tasks/", params={"limit": PAGE, "offset": offset})
-        res = page.get("results") or []
-        for t in res:
-            slug = (t.get("company") or {}).get("slug")
-            if slug:
-                out.setdefault(slug, []).append(t)
-        offset += PAGE
-        if not page.get("next") or not res:
-            break
+    for t in _paginate(c, f"{API}/tasks/"):
+        slug = (t.get("company") or {}).get("slug")
+        if slug:
+            out.setdefault(slug, []).append(t)
     return out
 
 

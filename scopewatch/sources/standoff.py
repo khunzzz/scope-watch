@@ -65,17 +65,22 @@ def parse(p: dict) -> Program:
 
 def list_raw(c: Client) -> list[dict]:
     seen, out = set(), []
+    total_pages = None   # pageProps.total — число страниц (не программ)
     for page in range(1, MAX_PAGES + 1):
         pp = c.next_data(f"{BASE}/programs", params={"page": page})
         progs = pp.get("programs") or []
+        if isinstance(pp.get("total"), int) and total_pages is None:
+            total_pages = pp["total"]
         if not progs:
+            if total_pages and page <= total_pages:
+                # пустая страница посреди списка — сбой, а не конец: иначе хвост списка «пропадёт»
+                raise ValueError(f"пустая страница {page} из {total_pages}")
             break
         for p in progs:
             if p.get("visibility", "public") == "public" and p["slug"] not in seen:
                 seen.add(p["slug"])
                 out.append(p)
-        total_pages = pp.get("total")
-        if isinstance(total_pages, int) and page >= total_pages:
+        if total_pages and page >= total_pages:
             break
     return out
 

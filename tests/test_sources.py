@@ -1,5 +1,6 @@
 import copy
 
+import pytest
 import requests
 from conftest import load
 
@@ -28,7 +29,7 @@ def bizone_routes(details):
         f"{bizone.API}/tasks/": {"count": sum(map(len, tasks.values())), "next": None,
                                  "results": [t for ts in tasks.values() for t in ts]},
         f"{bizone.API}/companies/": {"count": len(details), "next": None,
-                                     "results": [{"slug": d["slug"], "public": True} for d in details]},
+                                     "results": [{"id": d["slug"], "slug": d["slug"], "public": True} for d in details]},
     }
     for d in details:
         routes[f"{bizone.API}/companies/{d['slug']}/"] = d
@@ -112,3 +113,41 @@ def test_standoff_broken_reward_page_keeps_old_rewards(so_raw):
     by = {p.slug: p for p in got.programs}
     assert set(by) == {"flowwow", "anyquery"} and by["anyquery"].rewards == {}
     assert "rewards_at" not in by["anyquery"].meta
+
+
+def test_bizone_pagination_shift_is_detected(monkeypatch):
+    tasks = [t for ts in load("bizone_tasks.json").values() for t in ts]
+    monkeypatch.setattr(bizone, "PAGE", 10)
+    state = {"pages": 0}
+
+    def page(params):
+        # после первой страницы одну задачу заархивировали: список сдвинулся
+        cur = tasks if state["pages"] == 0 else tasks[1:]
+        state["pages"] += 1
+        off = params["offset"]
+        return {"count": len(cur), "next": "more" if off + 10 < len(cur) else None,
+                "results": copy.deepcopy(cur[off:off + 10])}
+
+    got = bizone.tasks_by_company(FakeClient({f"{bizone.API}/tasks/": page}))
+    # первая попытка отброшена, вторая прошла по стабильному списку: ничего не потеряно
+    assert sorted(t["id"] for ts in got.values() for t in ts) == sorted(t["id"] for t in tasks[1:])
+
+    def dup(params):   # нестабильный порядок: на двух страницах одна и та же задача
+        off = params["offset"]
+        res = tasks[off:off + 10] if off else tasks[:9] + [tasks[0]]
+        return {"count": 20, "next": "more" if off == 0 else None, "results": copy.deepcopy(res)}
+
+    with pytest.raises(RuntimeError, match="пагинации"):
+        bizone.tasks_by_company(FakeClient({f"{bizone.API}/tasks/": dup}))
+
+
+def test_standoff_empty_page_mid_list_is_error(so_raw):
+    def pages(params):
+        progs = {1: [so_raw["flowwow"]], 2: [], 3: [so_raw["anyquery"]]}.get(params["page"], [])
+        return {"programs": copy.deepcopy(progs), "total": 3}
+
+    with pytest.raises(ValueError, match="пустая страница 2 из 3"):
+        standoff.list_raw(FakeClient({f"{standoff.BASE}/programs": pages}))
+    # обычный конец списка: страница после последней пустая — не ошибка
+    ok = lambda params: {"programs": [so_raw["flowwow"]] if params["page"] == 1 else [], "total": 1}  # noqa: E731
+    assert [p["slug"] for p in standoff.list_raw(FakeClient({f"{standoff.BASE}/programs": ok}))] == ["flowwow"]
