@@ -42,14 +42,19 @@ def collect(settings: Settings, store: Store, platforms: list[str]) -> dict[str,
     for name in platforms:
         c = Collected(prev=store.load(name))
         try:
-            new = SOURCES[name].fetch(client, c.prev)
+            fetched = SOURCES[name].fetch(client, c.prev)
+            new = fetched.programs
             if not new:
                 raise RuntimeError("пустой список программ")
+            if len(fetched.failed) > settings.max_fail_share * fetched.total:
+                raise RuntimeError(f"не загрузились {len(fetched.failed)} из {fetched.total} программ: "
+                                   + ", ".join(fetched.failed[:5]))
             dropped = len(c.prev) - len(new)
             if c.prev and len(new) < settings.min_ratio * len(c.prev) and dropped > settings.min_drop:
                 raise RuntimeError(f"подозрительно мало программ: {len(new)} против {len(c.prev)}")
             c.new = new
-            log.info("%s: %d программ", name, len(new))
+            log.info("%s: %d программ%s", name, len(new),
+                     f", точечных сбоев {len(fetched.failed)}" if fetched.failed else "")
         except Exception as e:  # noqa: BLE001 — любая ошибка источника = платформа недоступна
             c.error = f"{type(e).__name__}: {e}"
             log.error("%s: %s", name, c.error)

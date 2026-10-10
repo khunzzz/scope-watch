@@ -71,3 +71,13 @@ class ProgramChange:
         return not (self.activated is not None or self.renamed_from or self.assets_added
                     or self.assets_removed or self.oos_added or self.oos_removed
                     or self.rewards or self.new_versions or self.text_diff)
+
+
+@dataclass
+class Fetched:
+    """Результат опроса площадки. failed — программы, у которых не загрузились детали:
+    для известных оставлены прошлые данные, новые пропущены до следующего прогона.
+    Решение «площадка упала» принимает runner по доле failed от total."""
+    programs: list[Program]
+    total: int                          # программ в списке площадки
+    failed: list[str] = field(default_factory=list)

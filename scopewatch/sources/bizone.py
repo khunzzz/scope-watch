@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from ..assets import VERSION as EXTRACTOR_VERSION, extract, split_scope
 from ..http import Client
-from ..models import SEVERITIES, Program
+from ..models import SEVERITIES, Fetched, Program
 
 NAME = "bizone"
 TITLE = "BI.ZONE"
@@ -14,6 +16,8 @@ API = f"{BASE}/api/bug-bounty"
 EXCLUDE = ("bi.zone",)
 OWN_SLUGS = {"bi-zone-bug-bounty"}
 PAGE = 100
+
+log = logging.getLogger("scope-watch")
 
 
 def _scope_md(d: dict) -> str:
@@ -111,13 +115,24 @@ def tasks_by_company(c: Client) -> dict[str, list[dict]]:
     return out
 
 
-def fetch(c: Client, prev: dict[str, Program]) -> list[Program]:
+def fetch(c: Client, prev: dict[str, Program]) -> Fetched:
     # без задач нельзя: иначе у всех программ скоуп «откатится» на текстовую эвристику → ложный дифф
     tasks = tasks_by_company(c)
-    result = []
-    for item in list_raw(c):
+    items = list_raw(c)
+    result, failed = [], []
+    for item in items:
         slug = item["slug"]
-        detail = c.json(f"{API}/companies/{slug}/")
+        try:
+            detail = c.json(f"{API}/companies/{slug}/")
+        except Exception as e:  # noqa: BLE001 — сбой одной программы не должен ронять площадку
+            log.warning("bizone/%s: детали не загрузились (%s: %s)", slug, type(e).__name__, e)
+            failed.append(slug)
+            if slug in prev:
+                # оставляем прошлый снапшот: ни ложного «пропала», ни ложного диффа
+                kept = Program.from_dict(prev[slug].to_dict())
+                kept.meta.pop("missing", None)   # в списке она есть
+                result.append(kept)
+            continue  # новая — объявим в следующий прогон, когда детали загрузятся
         try:
             versions = c.json(f"{API}/companies/{slug}/program-versions/")
         except Exception:
@@ -127,4 +142,4 @@ def fetch(c: Client, prev: dict[str, Program]) -> list[Program]:
             # версии не загрузились — не считаем это изменением
             prog.versions = prev[slug].versions
         result.append(prog)
-    return result
+    return Fetched(result, total=len(items), failed=failed)

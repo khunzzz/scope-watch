@@ -1,4 +1,4 @@
-"""Источники: у каждого модуля NAME, TITLE и fetch(client, prev) -> list[Program]."""
+"""Источники: у каждого модуля NAME, TITLE и fetch(client, prev) -> Fetched."""
 
 from . import bizone, standoff
 

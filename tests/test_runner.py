@@ -7,6 +7,7 @@ import pytest
 
 from scopewatch import runner
 from scopewatch.config import Settings
+from scopewatch.models import Fetched
 from scopewatch.sources import standoff
 
 
@@ -25,7 +26,8 @@ def env(tmp_path, monkeypatch, so_raw):
     def fetch(client, prev):
         if state["fail"]:
             raise ConnectionError("boom")
-        return copy.deepcopy(state["programs"])
+        progs = copy.deepcopy(state["programs"])
+        return Fetched(progs, total=len(progs), failed=state.get("failed", []))
 
     fake = types.SimpleNamespace(NAME="standoff", TITLE="Standoff 365", fetch=fetch)
     monkeypatch.setattr(runner, "SOURCES", {"standoff": fake})
@@ -167,7 +169,7 @@ def two(tmp_path, monkeypatch, so_raw, so_tbank, bz_tbank):
 
     def src(name, title):
         return types.SimpleNamespace(NAME=name, TITLE=title,
-                                     fetch=lambda client, prev: copy.deepcopy(state[name]))
+                                     fetch=lambda client, prev: Fetched(copy.deepcopy(state[name]), len(state[name])))
 
     monkeypatch.setattr(runner, "SOURCES", {"standoff": src("standoff", "Standoff 365"),
                                             "bizone": src("bizone", "BI.ZONE")})
@@ -186,3 +188,29 @@ def test_carried_program_stays_linked(two):
     [msg] = out.sent
     # склейка с Standoff жива: хост покрыт *.tinkoff.ru оттуда
     assert "уже были в скоупе на Standoff 365" in msg and "🔗 Также на" in msg
+
+
+def test_point_failures_tolerated_mass_failure_is_platform_down(env):
+    settings, state, so_raw = env
+    base = standoff.parse(so_raw["flowwow"])
+    progs = []
+    for i in range(10):
+        p = copy.deepcopy(base)
+        p.slug = f"p{i}"
+        progs.append(p)
+    state["programs"] = progs
+    runner.run(settings, Collect())
+    # 2 из 10 не загрузились (источник отдал их прошлые снапшоты) — площадка жива, событий нет
+    state["failed"] = ["p0", "p1"]
+    progs[5].active = False
+    out = Collect()
+    runner.run(settings, out)
+    assert len(out.sent) == 1 and "🔒" in out.sent[0]
+    # 3 из 10 (> 20%) — считаем, что упала площадка: снапшот не трогаем
+    state["failed"] = ["p0", "p1", "p2"]
+    progs[6].active = False
+    for _ in range(2):
+        out = Collect()
+        runner.run(settings, out)
+    assert len(out.sent) == 1 and "⚠️" in out.sent[0] and "не загрузились 3 из 10" in out.sent[0]
+    assert runner.Store(settings.data_dir).load("standoff")["p6"].active

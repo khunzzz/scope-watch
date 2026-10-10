@@ -7,11 +7,12 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from ..assets import VERSION as EXTRACTOR_VERSION, split_scope
 from ..http import Client
-from ..models import SEVERITIES, Program
+from ..models import SEVERITIES, Fetched, Program
 
 NAME = "standoff"
 TITLE = "Standoff 365"
@@ -22,6 +23,8 @@ EXCLUDE = ("standoff365.com",)
 OWN_SLUGS = {"standoff-365"}
 REWARD_TTL = 6 * 3600
 MAX_PAGES = 50
+
+log = logging.getLogger("scope-watch")
 
 
 def _scope_md(p: dict) -> str:
@@ -77,10 +80,11 @@ def list_raw(c: Client) -> list[dict]:
     return out
 
 
-def fetch(c: Client, prev: dict[str, Program]) -> list[Program]:
+def fetch(c: Client, prev: dict[str, Program]) -> Fetched:
     now = time.time()
-    result = []
-    for raw in list_raw(c):
+    items = list_raw(c)
+    result, failed = [], []
+    for raw in items:
         prog = parse(raw)
         old = prev.get(prog.slug)
         stale = (
@@ -88,12 +92,22 @@ def fetch(c: Client, prev: dict[str, Program]) -> list[Program]:
             or old.updated_at != prog.updated_at
             or now - old.meta.get("rewards_at", 0) > REWARD_TTL
         )
+        loaded = False
         if stale and prog.active:
-            pp = c.next_data(prog.url)
-            prog.rewards = _rewards(pp.get("reward"))
-            prog.meta["rewards_at"] = now
-        elif old is not None:
+            try:
+                pp = c.next_data(prog.url)
+                prog.rewards = _rewards(pp.get("reward"))
+                prog.meta["rewards_at"] = now
+                loaded = True
+            except Exception as e:  # noqa: BLE001 — сбой одной страницы не должен ронять площадку
+                log.warning("standoff/%s: выплаты не загрузились (%s: %s)", prog.slug, type(e).__name__, e)
+                failed.append(prog.slug)
+        if not loaded and old is not None:
+            # прошлые выплаты и время их загрузки: при сбое повторим в следующий прогон
             prog.rewards = old.rewards
             prog.meta["rewards_at"] = old.meta.get("rewards_at", 0)
+        # скоуп Standoff целиком в списке, поэтому новая программа без выплат всё равно
+        # объявляется (иначе вечный сбой её страницы = навсегда пропущенная программа);
+        # выплаты подтянутся в следующий прогон: rewards_at не выставлен
         result.append(prog)
-    return result
+    return Fetched(result, total=len(items), failed=failed)
