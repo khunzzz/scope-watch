@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 SEVERITIES = ("low", "medium", "high", "critical")
+NO_BOUNTY = " (без выплат)"   # суффикс ассета, который в скоупе, но без вознаграждения
 
 
 @dataclass
@@ -59,6 +60,8 @@ class ProgramChange:
     renamed_from: str | None = None
     assets_added: list[str] = field(default_factory=list)
     assets_removed: list[str] = field(default_factory=list)
+    bounty_lost: list[str] = field(default_factory=list)     # ассет остался, но выплат больше нет
+    bounty_gained: list[str] = field(default_factory=list)   # ассет остался, выплаты появились
     oos_added: list[str] = field(default_factory=list)
     oos_removed: list[str] = field(default_factory=list)
     rewards: list[RewardDelta] = field(default_factory=list)
@@ -69,7 +72,8 @@ class ProgramChange:
         if self.kind != "updated":
             return False
         return not (self.activated is not None or self.renamed_from or self.assets_added
-                    or self.assets_removed or self.oos_added or self.oos_removed
+                    or self.assets_removed or self.bounty_lost or self.bounty_gained
+                    or self.oos_added or self.oos_removed
                     or self.rewards or self.new_versions or self.text_diff)
 
 

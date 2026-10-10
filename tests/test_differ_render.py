@@ -108,3 +108,45 @@ def test_truncation_never_cuts_html_entity(so_raw):
     [msg] = render([ProgramChange(kind="new", program=p)], Linker([p]))
     line = next(ln for ln in msg.splitlines() if ln.startswith("Out of scope"))
     assert line.endswith("x &amp; &lt;") and "<b>" not in line
+
+
+def test_text_diff_keeps_lines_starting_with_dashes_and_pluses():
+    from scopewatch.differ import text_diff
+    assert text_diff("Скоуп\n-- api.x.ru", "Скоуп") == "--- api.x.ru"
+    assert text_diff("Скоуп", "Скоуп\n++ бонус") == "+++ бонус"
+    # единственная правка — в такой строке: событие не должно потеряться
+    old = standoff.parse(dict(copy.deepcopy(standoff_raw_min()), description="Скоуп\n-- старое правило"))
+    new = standoff.parse(dict(copy.deepcopy(standoff_raw_min()), description="Скоуп"))
+    [ch] = diff_platform({old.slug: old}, [new])
+    assert ch.text_diff == "--- старое правило"
+
+
+def standoff_raw_min():
+    return {"slug": "x", "name": "X", "status": "published", "description": "", "specialRules": ""}
+
+
+def test_bounty_change_is_one_event_not_remove_plus_add():
+    from scopewatch.models import NO_BOUNTY
+    base = standoff.parse(standoff_raw_min())
+    old, new = copy.deepcopy(base), copy.deepcopy(base)
+    old.assets = ["a.corp.ru", "b.corp.ru" + NO_BOUNTY, "c.corp.ru"]
+    new.assets = ["a.corp.ru" + NO_BOUNTY, "b.corp.ru", "d.corp.ru"]
+    [ch] = diff_platform({old.slug: old}, [new])
+    assert ch.bounty_lost == ["a.corp.ru"] and ch.bounty_gained == ["b.corp.ru"]
+    assert ch.assets_added == ["d.corp.ru"] and ch.assets_removed == ["c.corp.ru"]
+    [msg] = render([ch], Linker([new]))
+    assert "Больше не платят" in msg and "Теперь платят" in msg
+    assert "a.corp.ru (без выплат)" not in msg
+
+
+def test_reopened_program_shows_scope_and_rewards(so_raw):
+    old = standoff.parse(so_raw["flowwow"])
+    old.active, old.rewards = False, {"critical": [50000, 70000]}
+    new = copy.deepcopy(old)
+    new.active = True
+    new.assets = sorted(new.assets + ["*.fresh.flowwow.com"])
+    [ch] = diff_platform({old.slug: old}, [new])
+    [msg] = render([ch], Linker([new]))
+    assert "♻️" in msg and "crit 50 000–70 000" in msg
+    assert "flowwow.com" in msg and "*.fresh.flowwow.com" in msg
+    assert "Новые ассеты" not in msg          # весь скоуп уже показан, без дубля

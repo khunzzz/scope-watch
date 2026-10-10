@@ -6,7 +6,7 @@ import logging
 
 from ..assets import VERSION as EXTRACTOR_VERSION, extract, split_scope
 from ..http import Client
-from ..models import SEVERITIES, Fetched, Program
+from ..models import NO_BOUNTY, SEVERITIES, Fetched, Program
 
 NAME = "bizone"
 TITLE = "BI.ZONE"
@@ -32,7 +32,7 @@ def task_assets(t: dict) -> list[str]:
     found = extract(f"{title}\n{t.get('description') or ''}")
     items = found or ([title[:120]] if title else [])
     if t.get("inScope", True) and not t.get("eligibility", True):
-        items = [f"{a} (без выплат)" for a in items]
+        items = [a + NO_BOUNTY for a in items]
     return items
 
 

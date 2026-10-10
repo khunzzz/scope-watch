@@ -123,6 +123,10 @@ def cmd_history(s: Settings, a) -> int:
             what.append("+" + ", +".join(r["assets_added"][:5]) + (" …" if len(r["assets_added"]) > 5 else ""))
         if r["assets_removed"]:
             what.append(f"-{len(r['assets_removed'])} ассетов")
+        if r.get("bounty_lost"):
+            what.append(f"без выплат: {len(r['bounty_lost'])}")
+        if r.get("bounty_gained"):
+            what.append(f"с выплатами: {len(r['bounty_gained'])}")
         if r["rewards"]:
             what.append("выплаты")
         if r["new_versions"]:

@@ -54,6 +54,26 @@ def _split_known(assets: list[str], peers: list[Program]) -> tuple[list[str], li
     return fresh, known
 
 
+def _scope_summary(p: Program, peers: list[Program]) -> list[str]:
+    """Выплаты + ассеты (новые для компании отдельно от уже известных) + out of scope."""
+    lines = []
+    if p.rewards:
+        lines.append(rewards_line(p))
+    if p.assets:
+        fresh, known = _split_known(p.assets, peers)
+        src = "" if p.assets_source == "structured" else ", из текста"
+        lines.append(f"Ассеты ({len(p.assets)}{src}):")
+        lines.append(asset_block(fresh or p.assets))
+        if peers and known and fresh:
+            lines.append(f"ещё {len(known)} уже были в скоупе на "
+                         + ", ".join(TITLES[x.platform] for x in peers))
+    else:
+        lines.append("Ассеты из текста не извлеклись, смотри описание.")
+    if p.out_of_scope:
+        lines.append("Out of scope: " + escape(", ".join(p.out_of_scope)[:400]))
+    return lines
+
+
 def _section(ch: ProgramChange, peers: list[Program]) -> str:
     p = ch.program
     head = f"<b>{escape(TITLES[p.platform])}</b> · {link(p, p.name)}"
@@ -61,30 +81,22 @@ def _section(ch: ProgramChange, peers: list[Program]) -> str:
 
     if ch.kind == "new":
         lines.append("🆕 <b>Новая программа</b>")
-        if p.rewards:
-            lines.append(rewards_line(p))
-        if p.assets:
-            fresh, known = _split_known(p.assets, peers)
-            src = "" if p.assets_source == "structured" else ", из текста"
-            lines.append(f"Ассеты ({len(p.assets)}{src}):")
-            lines.append(asset_block(fresh or p.assets))
-            if peers and known:
-                lines.append(f"ещё {len(known)} уже были в скоупе на "
-                             + ", ".join(TITLES[x.platform] for x in peers))
-        else:
-            lines.append("Ассеты из текста не извлеклись, смотри описание.")
-        if p.out_of_scope:
-            lines.append("Out of scope: " + escape(", ".join(p.out_of_scope)[:400]))
+        lines += _scope_summary(p, peers)
         return head + "\n" + "\n".join(lines)
 
     if ch.kind == "removed":
         return head + "\n🗑 Пропала из публичного списка (стала приватной или удалена)."
 
-    if ch.activated is not None:
-        lines.append("♻️ <b>Снова активна</b>" if ch.activated else f"🔒 <b>Закрыта</b> ({escape(p.status)})")
+    reopened = ch.activated is True
+    if reopened:
+        # за время закрытия скоуп мог измениться целиком — показываем его, как у новой программы
+        lines.append("♻️ <b>Снова активна</b>")
+        lines += _scope_summary(p, peers)
+    elif ch.activated is False:
+        lines.append(f"🔒 <b>Закрыта</b> ({escape(p.status)})")
     if ch.renamed_from:
         lines.append(f"✏️ Было название: {escape(ch.renamed_from)}")
-    if ch.assets_added:
+    if ch.assets_added and not reopened:
         fresh, known = _split_known(ch.assets_added, peers)
         lines.append(f"➕ <b>Новые ассеты ({len(ch.assets_added)})</b>")
         if fresh:
@@ -96,6 +108,12 @@ def _section(ch: ProgramChange, peers: list[Program]) -> str:
     if ch.assets_removed:
         lines.append(f"➖ Убраны ассеты ({len(ch.assets_removed)}):")
         lines.append(asset_block(ch.assets_removed, 500))
+    if ch.bounty_lost:
+        lines.append(f"💸 Больше не платят за ({len(ch.bounty_lost)}):")
+        lines.append(asset_block(ch.bounty_lost, 400))
+    if ch.bounty_gained:
+        lines.append(f"💰 Теперь платят за ({len(ch.bounty_gained)}):")
+        lines.append(asset_block(ch.bounty_gained, 400))
     if ch.oos_added:
         lines.append("🚫 Добавлено в out of scope:")
         lines.append(asset_block(ch.oos_added, 400))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import difflib
 
-from .models import SEVERITIES, Program, ProgramChange
+from .models import NO_BOUNTY, SEVERITIES, Program, ProgramChange
 
 DIFF_BUDGET = 1500  # символов текстового диффа скоупа
 LINE_MAX = 220
@@ -12,8 +12,10 @@ LINE_MAX = 220
 
 def text_diff(old: str, new: str, budget: int = DIFF_BUDGET) -> str:
     lines = []
-    for ln in difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0):
-        if ln.startswith(("---", "+++", "@@")) or not ln[1:].strip():
+    for i, ln in enumerate(difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=0)):
+        # первые две строки — заголовки ---/+++; по префиксу их не отличить от удалённой
+        # строки «-- x» или добавленной «++ x», поэтому пропускаем по позиции
+        if i < 2 or ln.startswith("@@") or not ln[1:].strip():
             continue
         lines.append(ln if len(ln) <= LINE_MAX else ln[:LINE_MAX] + "…")
     out, used = [], 0
@@ -39,8 +41,14 @@ def compare(old: Program, new: Program) -> ProgramChange:
     same_basis = (old.assets_source == new.assets_source
                   and old.meta.get("extractor") == new.meta.get("extractor"))
     if same_basis:
-        ch.assets_added = sorted(set(new.assets) - set(old.assets))
-        ch.assets_removed = sorted(set(old.assets) - set(new.assets))
+        added, removed = set(new.assets) - set(old.assets), set(old.assets) - set(new.assets)
+        # «a.ru» → «a.ru (без выплат)» и обратно — это смена выплат по ассету, а не новый ассет
+        ch.bounty_lost = sorted(a for a in removed if a + NO_BOUNTY in added)
+        ch.bounty_gained = sorted(a[: -len(NO_BOUNTY)] for a in removed
+                                  if a.endswith(NO_BOUNTY) and a[: -len(NO_BOUNTY)] in added)
+        added -= {a + NO_BOUNTY for a in ch.bounty_lost} | set(ch.bounty_gained)
+        removed -= set(ch.bounty_lost) | {a + NO_BOUNTY for a in ch.bounty_gained}
+        ch.assets_added, ch.assets_removed = sorted(added), sorted(removed)
         ch.oos_added = sorted(set(new.out_of_scope) - set(old.out_of_scope))
         ch.oos_removed = sorted(set(old.out_of_scope) - set(new.out_of_scope))
 
