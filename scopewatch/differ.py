@@ -57,20 +57,17 @@ def compare(old: Program, new: Program) -> ProgramChange:
     return ch
 
 
-MISSING_RUNS = 2  # сколько прогонов подряд программы нет в списке, прежде чем сказать «пропала»
-
-
-def carry_missing(old: dict[str, Program], new: list[Program]) -> list[Program]:
+def carry_missing(old: dict[str, Program], new: list[Program], runs: int) -> list[Program]:
     """Пагинация может «потерять» программу на один прогон (список сдвинулся между страницами).
     Такую программу переносим из прошлого снапшота со счётчиком пропусков; «пропала» — только
-    когда её нет MISSING_RUNS прогонов подряд."""
+    когда её нет runs прогонов подряд (Settings.missing_runs)."""
     present = {p.slug for p in new}
     carried = []
     for slug, o in old.items():
         if slug in present:
             continue
         misses = o.meta.get("missing", 0) + 1
-        if misses < MISSING_RUNS:
+        if misses < runs:
             c = Program.from_dict(o.to_dict())
             c.meta["missing"] = misses
             carried.append(c)

@@ -25,10 +25,22 @@ class Settings:
     tg_chat_id: str | None
     data_dir: Path
     request_delay: float = 0.4
-    fail_alert_after: int = 3     # после скольких падений подряд слать ⚠️
-    min_ratio: float = 0.7        # программ стало меньше 70% от прошлого → ответ битый
     interval: int = 900           # секунд между прогонами в режиме loop
     heartbeat: Path | None = None  # файл, который loop трогает после каждого прогона (healthcheck)
+    fail_alert_after: int = 3     # после скольких падений площадки подряд слать ⚠️
+
+    # --- пороги защиты от ложных срабатываний (все в одном месте) ---
+    # ответ площадки битый, если программ стало < min_ratio от прошлого И пропало > min_drop штук
+    min_ratio: float = 0.7
+    min_drop: int = 5
+    # не загрузились детали у > max_fail_share программ → площадка упала целиком;
+    # меньше — точечный сбой: у таких программ остаётся прошлый снапшот
+    max_fail_share: float = 0.2
+    # сколько прогонов подряд программы нет в списке, прежде чем сказать «пропала»
+    missing_runs: int = 2
+    # массовое изменение (> max(mass_min, mass_ratio × программ площадки)) → одно сводное сообщение
+    mass_min: int = 10
+    mass_ratio: float = 0.3
 
     @property
     def has_telegram(self) -> bool:

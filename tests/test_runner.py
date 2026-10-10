@@ -158,3 +158,31 @@ def test_extractor_upgrade_does_not_fake_new_assets(env):
     out = Collect()
     runner.run(settings, out)
     assert out.sent == []
+
+
+@pytest.fixture
+def two(tmp_path, monkeypatch, so_raw, so_tbank, bz_tbank):
+    """Обе площадки: на Standoff flowwow + tbank, на BI.ZONE tbank."""
+    state = {"standoff": [standoff.parse(so_raw["flowwow"]), so_tbank], "bizone": [bz_tbank]}
+
+    def src(name, title):
+        return types.SimpleNamespace(NAME=name, TITLE=title,
+                                     fetch=lambda client, prev: copy.deepcopy(state[name]))
+
+    monkeypatch.setattr(runner, "SOURCES", {"standoff": src("standoff", "Standoff 365"),
+                                            "bizone": src("bizone", "BI.ZONE")})
+    return Settings(tg_token=None, tg_chat_id=None, data_dir=tmp_path), state
+
+
+def test_carried_program_stays_linked(two):
+    settings, state = two
+    runner.run(settings, Collect())
+    state["standoff"] = state["standoff"][:1]          # tbank на один прогон выпал из списка Standoff
+    bz = copy.deepcopy(state["bizone"][0])
+    bz.assets = sorted(bz.assets + ["fresh.tinkoff.ru"])
+    state["bizone"] = [bz]
+    out = Collect()
+    runner.run(settings, out)
+    [msg] = out.sent
+    # склейка с Standoff жива: хост покрыт *.tinkoff.ru оттуда
+    assert "уже были в скоупе на Standoff 365" in msg and "🔗 Также на" in msg

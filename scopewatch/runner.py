@@ -17,10 +17,6 @@ from .storage import Store
 
 log = logging.getLogger("scope-watch")
 
-MIN_DROP = 5        # «список подозрительно короткий» — пропало и >30%, и больше 5 программ
-MASS_MIN = 10       # массовым считаем изменение > max(10, 30% программ площадки) за один прогон
-MASS_RATIO = 0.3
-
 
 @dataclass
 class Collected:
@@ -50,7 +46,7 @@ def collect(settings: Settings, store: Store, platforms: list[str]) -> dict[str,
             if not new:
                 raise RuntimeError("пустой список программ")
             dropped = len(c.prev) - len(new)
-            if c.prev and len(new) < settings.min_ratio * len(c.prev) and dropped > MIN_DROP:
+            if c.prev and len(new) < settings.min_ratio * len(c.prev) and dropped > settings.min_drop:
                 raise RuntimeError(f"подозрительно мало программ: {len(new)} против {len(c.prev)}")
             c.new = new
             log.info("%s: %d программ", name, len(new))
@@ -91,6 +87,11 @@ def run(settings: Settings, notifier: Notifier, *, platforms: list[str] | None =
 def _run(settings: Settings, notifier: Notifier, store: Store, platforms: list[str],
          seed: bool, dry_run: bool) -> RunResult:
     collected = collect(settings, store, platforms)
+    seeding = {name for name, c in collected.items() if c.new is not None and (seed or not c.prev)}
+    for name, c in collected.items():
+        if c.new is not None and name not in seeding:
+            # до склейки: временно выпавшая из списка программа должна остаться в линкере
+            c.new = carry_missing(c.prev, c.new, settings.missing_runs)
 
     # склейка по актуальному состоянию всех платформ (включая не опрошенные в этот раз)
     everything = [p for name in SOURCES
@@ -103,12 +104,11 @@ def _run(settings: Settings, notifier: Notifier, store: Store, platforms: list[s
     for name, c in collected.items():
         if c.new is None:
             continue
-        if seed or not c.prev:
+        if name in seeding:
             result.seeded.append(f"{TITLES[name]}: {len(c.new)} программ ({sum(p.active for p in c.new)} активных)")
             continue
-        c.new = carry_missing(c.prev, c.new)
         changes = diff_platform(c.prev, c.new)
-        if len(changes) > max(MASS_MIN, MASS_RATIO * len(c.prev)):
+        if len(changes) > max(settings.mass_min, settings.mass_ratio * len(c.prev)):
             # площадка поменяла формат/вёрстку — одно сводное сообщение вместо сотни
             mass_messages.append(render.mass_change(name, changes))
         else:
