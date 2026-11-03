@@ -13,10 +13,6 @@ import (
 type pageClient interface {
 	NextData(context.Context, string, url.Values, any) error
 }
-type page struct {
-	Programs []programData
-	Total    *int
-}
 
 func (a *Adapter) list(ctx context.Context) ([]programData, error) {
 	seen := map[string]bool{}

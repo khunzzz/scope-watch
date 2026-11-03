@@ -142,7 +142,7 @@ type Adapter interface {
 ```
 
 Для новой площадки создай `internal/adapters/<platform>` с `adapter.go`,
-`client.go`, `parser.go` и добавь конструктор в `adapters.New`.
+`client.go`, `types.go`, `parser.go` и добавь конструктор в `adapters.New`.
 Адаптер не меняет переданный прошлый снимок, возвращает нормализованные программы,
 общее количество и slug частичных сбоев. Ошибка полного списка/обязательного scope
 возвращается как `error`. CLI автоматически принимает новое имя в `--only`.

@@ -13,22 +13,6 @@ const Name = "standoff"
 const Title = "Standoff 365"
 const baseURL = "https://bugbounty.standoff365.com"
 
-type programData struct {
-	Slug         string  `json:"slug"`
-	Name         string  `json:"name"`
-	Description  string  `json:"description"`
-	SpecialRules string  `json:"specialRules"`
-	Status       string  `json:"status"`
-	Visibility   string  `json:"visibility"`
-	UpdatedAt    string  `json:"updatedAt"`
-	Finished     bool    `json:"finished"`
-	ArchivedAt   *string `json:"archivedAt"`
-}
-type rewardData struct {
-	MinReward int `json:"minReward"`
-	MaxReward int `json:"maxReward"`
-}
-
 func parse(raw programData) (model.Program, error) {
 	if raw.Slug == "" {
 		return model.Program{}, fmt.Errorf("standoff program has no slug")
