@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -21,6 +22,15 @@ type platformTransport struct {
 func newPlatformHTTPClient(delay time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("too many platform redirects")
+			}
+			if req.URL.Scheme != "https" || req.URL.Host != via[0].URL.Host || req.URL.User != nil {
+				return fmt.Errorf("platform redirect outside its HTTPS origin refused")
+			}
+			return nil
+		},
 		Transport: &platformTransport{
 			base:  http.DefaultTransport.(*http.Transport).Clone(),
 			delay: delay,
