@@ -1,5 +1,5 @@
-// Package notify implements Telegram delivery and dry-run output.
-package notify
+// Package telegram formats and delivers notifications.
+package telegram
 
 import (
 	"bytes"
@@ -14,9 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/khunzzz/scope-watch/internal/httpclient"
-	"github.com/khunzzz/scope-watch/internal/render"
 )
 
 var tokenRE = regexp.MustCompile(`[0-9]{6,}:[A-Za-z0-9_-]{20,}`)
@@ -52,7 +49,7 @@ func (s Stdout) Send(ctx context.Context, text string) error {
 	return err
 }
 
-type Telegram struct {
+type Client struct {
 	http                *http.Client
 	token, chatID, base string
 	mu                  sync.Mutex
@@ -60,8 +57,14 @@ type Telegram struct {
 	pause               time.Duration
 }
 
-func NewTelegram(token, chatID string) *Telegram {
-	return &Telegram{http: &http.Client{Timeout: 30 * time.Second}, token: token, chatID: chatID, base: "https://api.telegram.org", pause: time.Second}
+func NewClient(token, chatID string) *Client {
+	return &Client{
+		http:   &http.Client{Timeout: 30 * time.Second},
+		token:  token,
+		chatID: chatID,
+		base:   "https://api.telegram.org",
+		pause:  time.Second,
+	}
 }
 
 type response struct {
@@ -73,7 +76,7 @@ type response struct {
 	Result json.RawMessage `json:"result"`
 }
 
-func (t *Telegram) request(ctx context.Context, method string, payload any) (response, int, error) {
+func (t *Client) request(ctx context.Context, method string, payload any) (response, int, error) {
 	var body io.Reader
 	verb := http.MethodGet
 	if payload != nil {
@@ -110,11 +113,12 @@ func (t *Telegram) request(ctx context.Context, method string, payload any) (res
 	out.Description = Redact(out.Description, t.token)
 	return out, r.StatusCode, nil
 }
-func (t *Telegram) Send(ctx context.Context, text string) error {
+
+func (t *Client) Send(ctx context.Context, text string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	mode := "HTML"
-	if render.Units(text) > 4096 {
+	if Units(text) > 4096 {
 		mode = ""
 		text = html.UnescapeString(tagsRE.ReplaceAllString(text, ""))
 		units, end := 0, 0
@@ -132,7 +136,7 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 		text = text[:end]
 		text += "\n…(обрезано)"
 	}
-	if err := httpclient.Wait(ctx, time.Until(t.last.Add(t.pause))); err != nil {
+	if err := wait(ctx, time.Until(t.last.Add(t.pause))); err != nil {
 		return err
 	}
 	for attempt := 0; attempt < 5; attempt++ {
@@ -146,7 +150,7 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 			return err
 		}
 		if status == 429 {
-			if err := httpclient.Wait(ctx, time.Duration(max(1, r.Parameters.RetryAfter))*time.Second); err != nil {
+			if err := wait(ctx, time.Duration(max(1, r.Parameters.RetryAfter))*time.Second); err != nil {
 				return err
 			}
 			continue
@@ -157,13 +161,14 @@ func (t *Telegram) Send(ctx context.Context, text string) error {
 			continue
 		}
 		if status < 200 || status >= 300 || !r.OK {
-			return fmt.Errorf("telegram HTTP %d: %s", status, render.Clip(r.Description, 200))
+			return fmt.Errorf("telegram HTTP %d: %s", status, Clip(r.Description, 200))
 		}
 		return nil
 	}
 	return fmt.Errorf("telegram retries exhausted")
 }
-func (t *Telegram) ChatIDs(ctx context.Context) (string, error) {
+
+func (t *Client) ChatIDs(ctx context.Context) (string, error) {
 	r, status, err := t.request(ctx, "getUpdates", nil)
 	if err != nil {
 		return "", err
@@ -201,4 +206,18 @@ func (t *Telegram) ChatIDs(ctx context.Context) (string, error) {
 		return "нет апдейтов — напиши боту /start", nil
 	}
 	return strings.Join(parts, ", "), nil
+}
+
+func wait(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

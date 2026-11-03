@@ -1,4 +1,4 @@
-package config
+package app
 
 import (
 	"fmt"
@@ -20,13 +20,28 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{DataDir: "data", RequestDelay: 400 * time.Millisecond, Interval: 900 * time.Second, FailAlertAfter: 3, MinDrop: 5, MissingRuns: 2, MassMin: 10, MinRatio: .7, MaxFailShare: .2, MassRatio: .3}
+	return Settings{
+		DataDir:        "data",
+		RequestDelay:   400 * time.Millisecond,
+		Interval:       900 * time.Second,
+		FailAlertAfter: 3,
+		MinDrop:        5,
+		MissingRuns:    2,
+		MassMin:        10,
+		MinRatio:       .7,
+		MaxFailShare:   .2,
+		MassRatio:      .3,
+	}
 }
+
 func (s Settings) HasTelegram() bool { return s.Token != "" && s.ChatID != "" }
+
 func (s Settings) String() string {
 	return fmt.Sprintf("Settings{DataDir:%q Interval:%s Telegram:%t}", s.DataDir, s.Interval, s.HasTelegram())
 }
+
 func (s Settings) GoString() string { return s.String() }
+
 func LoadDotEnv(path string) error {
 	err := godotenv.Load(path)
 	if os.IsNotExist(err) {
@@ -34,6 +49,7 @@ func LoadDotEnv(path string) error {
 	}
 	return err
 }
+
 func FromEnv() (Settings, error) {
 	s := Defaults()
 	if e := LoadDotEnv(".env"); e != nil {
@@ -56,7 +72,10 @@ func FromEnv() (Settings, error) {
 		name     string
 		dst      *time.Duration
 		positive bool
-	}{{"SCOPEWATCH_DELAY", &s.RequestDelay, false}, {"SCOPEWATCH_INTERVAL", &s.Interval, true}} {
+	}{
+		{"SCOPEWATCH_DELAY", &s.RequestDelay, false},
+		{"SCOPEWATCH_INTERVAL", &s.Interval, true},
+	} {
 		if v := os.Getenv(item.name); v != "" {
 			n, e := strconv.ParseFloat(v, 64)
 			if e != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > 86400*365 || (item.positive && n == 0) {

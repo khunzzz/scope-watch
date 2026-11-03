@@ -8,8 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/khunzzz/scope-watch/internal/assets"
-	"github.com/khunzzz/scope-watch/internal/model"
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 const Name = "bizone"
@@ -17,24 +16,30 @@ const Title = "BI.ZONE"
 const baseURL = "https://bugbounty.bi.zone"
 
 func defaultTrue(b *bool) bool { return b == nil || *b }
+
 func taskAssets(t taskData) []string {
 	title := strings.Join(strings.Fields(t.TextTask), " ")
-	found := assets.Extract(title+"\n"+t.Description, nil)
+	found := scope.ExtractAssets(title+"\n"+t.Description, nil)
 	if len(found) == 0 && title != "" {
 		r := []rune(title)
 		found = []string{string(r[:min(120, len(r))])}
 	}
 	if defaultTrue(t.InScope) && !defaultTrue(t.Eligibility) {
 		for i := range found {
-			found[i] += model.NoBounty
+			found[i] += scope.NoBounty
 		}
 	}
 	return found
 }
-func unique(items []string) []string { slices.Sort(items); return slices.Compact(items) }
-func parse(d programData, versions []versionData, tasks []taskData) (model.Program, error) {
+
+func unique(items []string) []string {
+	slices.Sort(items)
+	return slices.Compact(items)
+}
+
+func parse(d programData, versions []versionData, tasks []taskData) (scope.Program, error) {
 	if d.Slug == "" {
-		return model.Program{}, fmt.Errorf("BI.ZONE program has no slug")
+		return scope.Program{}, fmt.Errorf("BI.ZONE program has no slug")
 	}
 	live := []taskData{}
 	for _, t := range tasks {
@@ -54,7 +59,7 @@ func parse(d programData, versions []versionData, tasks []taskData) (model.Progr
 			prose = append(prose, s)
 		}
 	}
-	scope := strings.Join(prose, "\n\n")
+	scopeMD := strings.Join(prose, "\n\n")
 	inside, outside := []string{}, []string{}
 	source := "text"
 	blocks := []string{}
@@ -74,17 +79,17 @@ func parse(d programData, versions []versionData, tasks []taskData) (model.Progr
 		inside = unique(inside)
 		outside = unique(outside)
 		taskMD := "## Скоуп (задачи BI.ZONE)\n\n" + strings.Join(blocks, "\n\n")
-		if scope != "" {
-			scope = taskMD + "\n\n" + scope
+		if scopeMD != "" {
+			scopeMD = taskMD + "\n\n" + scopeMD
 		} else {
-			scope = taskMD
+			scopeMD = taskMD
 		}
 	} else {
 		exclude := []string{"bi.zone"}
 		if d.Slug == "bi-zone-bug-bounty" {
 			exclude = nil
 		}
-		inside, outside = assets.SplitScope(scope, exclude)
+		inside, outside = scope.SplitScope(scopeMD, exclude)
 	}
 	rs := map[string][]int{}
 	for s, r := range map[string][]int{
@@ -121,7 +126,7 @@ func parse(d programData, versions []versionData, tasks []taskData) (model.Progr
 	if active {
 		status = "active"
 	}
-	return model.Program{
+	return scope.Program{
 		Platform:     Name,
 		Slug:         d.Slug,
 		Name:         name,
@@ -132,9 +137,9 @@ func parse(d programData, versions []versionData, tasks []taskData) (model.Progr
 		Assets:       inside,
 		OutOfScope:   outside,
 		AssetsSource: source,
-		ScopeMD:      scope,
+		ScopeMD:      scopeMD,
 		Versions:     vers,
 		UpdatedAt:    max(d.ModificationDateRules, d.ModificationDatePrice),
-		Meta:         map[string]any{"extractor": assets.Version},
+		Meta:         map[string]any{"extractor": scope.ExtractorVersion},
 	}, nil
 }

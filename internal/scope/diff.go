@@ -1,5 +1,4 @@
-// Package diff compares snapshots without performing I/O.
-package diff
+package scope
 
 import (
 	"fmt"
@@ -7,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/khunzzz/scope-watch/internal/model"
 	"github.com/pmezard/go-difflib/difflib"
 )
 
@@ -18,7 +16,8 @@ func truncate(s string, n int) string {
 	}
 	return s
 }
-func Text(old, new string, budget int) string {
+
+func TextDiff(old, new string, budget int) string {
 	lines := func(s string) []string {
 		if s == "" {
 			return nil
@@ -60,6 +59,7 @@ func Text(old, new string, budget int) string {
 	}
 	return strings.Join(out, "\n")
 }
+
 func difference(a, b []string) []string {
 	other := map[string]bool{}
 	for _, s := range b {
@@ -78,8 +78,9 @@ func difference(a, b []string) []string {
 	slices.Sort(out)
 	return out
 }
-func Compare(old, new model.Program) model.Change {
-	ch := model.Change{Kind: "updated", Program: new, Old: &old}
+
+func ComparePrograms(old, new Program) Change {
+	ch := Change{Kind: "updated", Program: new, Old: &old}
 	if old.Active != new.Active {
 		v := new.Active
 		ch.Activated = &v
@@ -91,13 +92,13 @@ func Compare(old, new model.Program) model.Change {
 		added, removed := difference(new.Assets, old.Assets), difference(old.Assets, new.Assets)
 		skipAdded, skipRemoved := map[string]bool{}, map[string]bool{}
 		for _, a := range removed {
-			if slices.Contains(added, a+model.NoBounty) {
+			if slices.Contains(added, a+NoBounty) {
 				ch.BountyLost = append(ch.BountyLost, a)
-				skipAdded[a+model.NoBounty] = true
+				skipAdded[a+NoBounty] = true
 				skipRemoved[a] = true
 			}
-			if strings.HasSuffix(a, model.NoBounty) {
-				bare := strings.TrimSuffix(a, model.NoBounty)
+			if strings.HasSuffix(a, NoBounty) {
+				bare := strings.TrimSuffix(a, NoBounty)
 				if slices.Contains(added, bare) {
 					ch.BountyGained = append(ch.BountyGained, bare)
 					skipAdded[bare] = true
@@ -119,9 +120,9 @@ func Compare(old, new model.Program) model.Change {
 		ch.OOSRemoved = difference(old.OutOfScope, new.OutOfScope)
 	}
 	if old.Rewards != nil && new.Rewards != nil {
-		for _, s := range model.Severities {
+		for _, s := range Severities {
 			if !reflect.DeepEqual(old.Rewards[s], new.Rewards[s]) {
-				ch.Rewards = append(ch.Rewards, model.RewardDelta{Severity: s, Before: old.Rewards[s], After: new.Rewards[s]})
+				ch.Rewards = append(ch.Rewards, RewardDelta{Severity: s, Before: old.Rewards[s], After: new.Rewards[s]})
 			}
 		}
 	}
@@ -133,13 +134,14 @@ func Compare(old, new model.Program) model.Change {
 		}
 	}
 	if old.ScopeMD != new.ScopeMD {
-		ch.TextDiff = Text(old.ScopeMD, new.ScopeMD, 1500)
+		ch.TextDiff = TextDiff(old.ScopeMD, new.ScopeMD, 1500)
 	}
 	return ch
 }
-func CarryMissing(old map[string]model.Program, current []model.Program, runs int) []model.Program {
+
+func CarryMissing(old map[string]Program, current []Program, runs int) []Program {
 	present := map[string]bool{}
-	out := append([]model.Program{}, current...)
+	out := append([]Program{}, current...)
 	for _, p := range current {
 		present[p.Slug] = true
 	}
@@ -162,17 +164,18 @@ func CarryMissing(old map[string]model.Program, current []model.Program, runs in
 	}
 	return out
 }
-func Platform(old map[string]model.Program, current []model.Program) []model.Change {
-	out := []model.Change{}
+
+func ComparePlatform(old map[string]Program, current []Program) []Change {
+	out := []Change{}
 	seen := map[string]bool{}
 	for _, p := range current {
 		seen[p.Slug] = true
 		if o, ok := old[p.Slug]; !ok {
 			if p.Active {
-				out = append(out, model.Change{Kind: "new", Program: p})
+				out = append(out, Change{Kind: "new", Program: p})
 			}
 		} else {
-			ch := Compare(o, p)
+			ch := ComparePrograms(o, p)
 			if !ch.Empty() {
 				out = append(out, ch)
 			}
@@ -186,7 +189,7 @@ func Platform(old map[string]model.Program, current []model.Program) []model.Cha
 	for _, s := range keys {
 		p := old[s]
 		if !seen[s] && p.Active {
-			out = append(out, model.Change{Kind: "removed", Program: p, Old: &p})
+			out = append(out, Change{Kind: "removed", Program: p, Old: &p})
 		}
 	}
 	return out

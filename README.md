@@ -120,40 +120,50 @@ go build -trimpath -o bin/scope-watch ./cmd/scope-watch
 
 | Путь | Ответственность |
 | --- | --- |
-| `cmd/scope-watch` | Сигналы, запуск CLI, код завершения |
-| `internal/cli` | Команды и настройка зависимостей |
-| `internal/runner` | Сбор, защита снимков, фиксация и отправка очереди |
-| `internal/adapters/standoff` | Страницы Standoff, парсер, кэш выплат |
-| `internal/adapters/bizone` | API BI.ZONE, пагинация, задачи и версии |
-| `internal/adapters/registry.go` | Подключение площадок |
-| `internal/model`, `assets`, `diff`, `linker` | Модели и вычисления без сети |
-| `internal/storage` | SQLite и транзакции |
-| `internal/httpclient`, `notify`, `render` | HTTP, Telegram и форматирование |
-| `internal/runlock`, `config` | Блокировка прогонов и настройки |
+| `cmd/scope-watch` | Точка входа и обработка сигналов |
+| `internal/app` | CLI, настройки, сборы, очередь и блокировка процесса |
+| `internal/scope` | `models.go`, извлечение ассетов, сравнение снимков и связи программ |
+| `internal/storage` | SQLite, SQL-запросы и схема |
+| `internal/notify/telegram` | Формирование и доставка уведомлений |
+| `internal/adapters/standoff` | DTO и сбор данных Standoff |
+| `internal/adapters/bizone` | DTO и сбор данных BI.ZONE |
 
-Контракт определяется потребителем — пакетом `runner`:
+Начинать чтение удобно с `cmd/scope-watch/main.go`, затем `internal/app/cli.go`
+и `internal/app/runner.go`. Подключение площадок находится в `internal/app/adapters.go`.
+Адаптеры получают стандартный `*http.Client`; настройки транспорта и повторов
+находятся в `internal/app/http.go`, разбор ответов — внутри адаптеров.
+Связанные функции разделены по файлам одного пакета; отдельный пакет нужен
+для самостоятельной части сервиса, а не для каждого файла.
+
+Контракт определяется потребителем — пакетом `app`:
 
 ```go
 type Adapter interface {
     Name() string
     Title() string
-    Fetch(context.Context, map[string]model.Program) (model.Fetched, error)
+    Fetch(context.Context, map[string]scope.Program) (scope.Fetched, error)
 }
 ```
 
 Для новой площадки создай `internal/adapters/<platform>` с `adapter.go`,
-`client.go`, `types.go`, `parser.go` и добавь конструктор в `adapters.New`.
+`client.go`, `types.go`, `parser.go` и добавь конструктор в `newAdapters` (`internal/app/adapters.go`).
 Адаптер не меняет переданный прошлый снимок, возвращает нормализованные программы,
 общее количество и slug частичных сбоев. Ошибка полного списка/обязательного scope
 возвращается как `error`. CLI автоматически принимает новое имя в `--only`.
 Наследование, глобальная саморегистрация и контейнер внедрения зависимостей не нужны.
 
-## Проверки
+## Форматирование и проверки
+
+Форматирование: `gofmt -w cmd internal e2e`. CI проверяет, что оно применено.
+Длинные цепочки запросов разбиваем вручную: вызов метода на строку,
+точка остаётся в конце предыдущей строки. Выполнение запроса и проверку ошибки
+пишем отдельными выражениями. Крупные литералы структур — поле на строку.
+`gofmt` сохраняет эти переносы и выравнивает отступы.
 
 ```bash
 go mod verify
 go vet ./...
-go test -race ./e2e
+go test -race -count=1 ./e2e
 CGO_ENABLED=0 go build -trimpath -o bin/scope-watch ./cmd/scope-watch
 ```
 
@@ -165,13 +175,13 @@ CGO_ENABLED=0 go build -trimpath -o bin/scope-watch ./cmd/scope-watch
 в приложение не добавлены тестовые URL или обход проверки сертификатов.
 
 E2E проверяет исходный сбор, отсутствие повторных уведомлений, dry-run, изменения
-scope, отказ и восстановление Telegram, сохранение очереди, отказ площадки,
+scope, повтор запросов после HTTP 429/503, отказ и восстановление Telegram, сохранение очереди, отказ площадки,
 подтверждение удаления, команды истории/экспорта, блокировку конкурирующих прогонов
 и завершение по SIGTERM. Проверка сквозного сценария запускается на Unix-системах.
 CI также собирает Docker-образ и запускает его CLI.
 
 ```bash
-go test -v ./e2e
+go test -v -count=1 ./e2e
 ```
 
 Идеи следующих изменений: [docs/roadmap.md](docs/roadmap.md).

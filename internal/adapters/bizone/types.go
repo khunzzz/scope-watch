@@ -1,6 +1,6 @@
 package bizone
 
-// Private wire types describe this platform's API, independently of model.Program.
+// Private wire types describe this platform's API, independently of scope.Program.
 type programData struct {
 	Slug                  string `json:"slug"`
 	Name                  string `json:"name"`
@@ -19,6 +19,7 @@ type programData struct {
 	ModificationDateRules string `json:"modificationDateRules"`
 	ModificationDatePrice string `json:"modificationDatePrice"`
 }
+
 type taskData struct {
 	ID          int    `json:"id"`
 	TextTask    string `json:"textTask"`
@@ -30,6 +31,7 @@ type taskData struct {
 		Slug string `json:"slug"`
 	} `json:"company"`
 }
+
 type versionData struct {
 	Type    string `json:"type"`
 	Version any    `json:"version"`

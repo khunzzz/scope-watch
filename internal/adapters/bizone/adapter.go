@@ -1,29 +1,33 @@
-// Package bizone adapts public BI.ZONE API programs and structured tasks.
+// Package bizone adapts the public BI.ZONE API to program snapshots.
 package bizone
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 
-	"github.com/khunzzz/scope-watch/internal/model"
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 type Adapter struct {
-	client   jsonClient
+	client   *http.Client
 	base     string
 	pageSize int
 }
 
-func New(client jsonClient) *Adapter {
+func New(client *http.Client) *Adapter {
 	return &Adapter{client: client, base: baseURL + "/api/bug-bounty", pageSize: 100}
 }
-func (*Adapter) Name() string  { return Name }
+
+func (*Adapter) Name() string { return Name }
+
 func (*Adapter) Title() string { return Title }
-func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (model.Fetched, error) {
+
+func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (scope.Fetched, error) {
 	tasks, err := paginate[taskData](ctx, a.client, a.base+"/tasks/", a.pageSize)
 	if err != nil {
-		return model.Fetched{}, fmt.Errorf("tasks: %w", err)
+		return scope.Fetched{}, fmt.Errorf("tasks: %w", err)
 	}
 	byCompany := map[string][]taskData{}
 	for _, t := range tasks {
@@ -33,12 +37,12 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 	}
 	all, err := paginate[programData](ctx, a.client, a.base+"/companies/", a.pageSize)
 	if err != nil {
-		return model.Fetched{}, fmt.Errorf("companies: %w", err)
+		return scope.Fetched{}, fmt.Errorf("companies: %w", err)
 	}
-	out := model.Fetched{Programs: []model.Program{}, Failed: []string{}}
+	out := scope.Fetched{Programs: []scope.Program{}, Failed: []string{}}
 	for _, item := range all {
 		if err := ctx.Err(); err != nil {
-			return model.Fetched{}, err
+			return scope.Fetched{}, err
 		}
 		if !defaultTrue(item.Public) {
 			continue
@@ -46,13 +50,13 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 		out.Total++
 		slug := item.Slug
 		if slug == "" {
-			return model.Fetched{}, fmt.Errorf("company has no slug")
+			return scope.Fetched{}, fmt.Errorf("company has no slug")
 		}
 		address := a.base + "/companies/" + url.PathEscape(slug) + "/"
 		var detail programData
-		if err := a.client.JSON(ctx, address, nil, &detail); err != nil {
+		if err := getJSON(ctx, a.client, address, nil, &detail); err != nil {
 			if ctx.Err() != nil {
-				return model.Fetched{}, ctx.Err()
+				return scope.Fetched{}, ctx.Err()
 			}
 			out.Failed = append(out.Failed, slug)
 			if old, ok := prev[slug]; ok {
@@ -63,12 +67,12 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 			continue
 		}
 		if detail.Slug != slug {
-			return model.Fetched{}, fmt.Errorf("company slug mismatch: requested %s, got %s", slug, detail.Slug)
+			return scope.Fetched{}, fmt.Errorf("company slug mismatch: requested %s, got %s", slug, detail.Slug)
 		}
 		var versions []versionData
-		versionErr := a.client.JSON(ctx, address+"program-versions/", nil, &versions)
+		versionErr := getJSON(ctx, a.client, address+"program-versions/", nil, &versions)
 		if ctx.Err() != nil {
-			return model.Fetched{}, ctx.Err()
+			return scope.Fetched{}, ctx.Err()
 		}
 		if versionErr != nil {
 			// Unmarshal can populate a slice before returning a type error.
@@ -76,7 +80,7 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 		}
 		p, err := parse(detail, versions, byCompany[slug])
 		if err != nil {
-			return model.Fetched{}, err
+			return scope.Fetched{}, err
 		}
 		if versionErr != nil || versions == nil {
 			if old, ok := prev[slug]; ok {

@@ -1,12 +1,11 @@
-package cli
+package app
 
 import (
 	"fmt"
 
 	"github.com/spf13/cobra"
 
-	"github.com/khunzzz/scope-watch/internal/notify"
-	"github.com/khunzzz/scope-watch/internal/runner"
+	"github.com/khunzzz/scope-watch/internal/notify/telegram"
 )
 
 func newRunCommand(app *application) *cobra.Command {
@@ -19,7 +18,7 @@ func newRunCommand(app *application) *cobra.Command {
 		if !dry && !app.settings.HasTelegram() {
 			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_ID; для проверки — --dry-run"))
 		}
-		result, err := app.runner.Run(cmd.Context(), app.notifier(dry), runner.Options{Platforms: only, DryRun: dry})
+		result, err := app.runner.Run(cmd.Context(), app.notifier(dry), Options{Platforms: only, DryRun: dry})
 		if err != nil {
 			return err
 		}
@@ -32,6 +31,7 @@ func newRunCommand(app *application) *cobra.Command {
 	cmd.Flags().BoolVar(&dry, "dry-run", false, "напечатать сообщения без отправки и сохранения")
 	return cmd
 }
+
 func newLoopCommand(app *application) *cobra.Command {
 	var only []string
 	cmd := app.command("loop", "Периодически собирать изменения", func(cmd *cobra.Command) error {
@@ -46,13 +46,14 @@ func newLoopCommand(app *application) *cobra.Command {
 	cmd.Flags().StringArrayVar(&only, "only", nil, "площадка (можно повторять)")
 	return cmd
 }
+
 func newSeedCommand(app *application) *cobra.Command {
 	var only []string
 	cmd := app.command("seed", "Сохранить исходный снимок без событий об изменениях", func(cmd *cobra.Command) error {
 		if err := app.validatePlatforms(only); err != nil {
 			return err
 		}
-		result, err := app.runner.Run(cmd.Context(), app.notifier(false), runner.Options{Platforms: only, Seed: true})
+		result, err := app.runner.Run(cmd.Context(), app.notifier(false), Options{Platforms: only, Seed: true})
 		if err != nil {
 			return err
 		}
@@ -64,6 +65,7 @@ func newSeedCommand(app *application) *cobra.Command {
 	cmd.Flags().StringArrayVar(&only, "only", nil, "площадка (можно повторять)")
 	return cmd
 }
+
 func newStatusCommand(app *application) *cobra.Command {
 	var asJSON bool
 	cmd := app.command("status", "Показать свежесть данных, сбои и очередь", func(cmd *cobra.Command) error {
@@ -72,6 +74,7 @@ func newStatusCommand(app *application) *cobra.Command {
 	cmd.Flags().BoolVar(&asJSON, "json", false, "вывести JSON")
 	return cmd
 }
+
 func newHistoryCommand(app *application) *cobra.Command {
 	var limit int
 	var program string
@@ -85,11 +88,13 @@ func newHistoryCommand(app *application) *cobra.Command {
 	cmd.Flags().StringVar(&program, "program", "", "slug программы")
 	return cmd
 }
+
 func newLinksCommand(app *application) *cobra.Command {
 	return app.command("links", "Показать связанные программы площадок", func(cmd *cobra.Command) error {
 		return inspect(cmd.Context(), app.settings, app.runner, "links", 0, "", "", app.out)
 	})
 }
+
 func newExportCommand(app *application) *cobra.Command {
 	var output string
 	cmd := app.command("export", "Выгрузить scope компаний в JSON", func(cmd *cobra.Command) error {
@@ -98,12 +103,13 @@ func newExportCommand(app *application) *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "", "выходной файл (по умолчанию stdout)")
 	return cmd
 }
+
 func newNotifyCommand(app *application) *cobra.Command {
 	return app.command("test-notify", "Проверить Telegram или узнать chat_id", func(cmd *cobra.Command) error {
 		if app.settings.Token == "" {
 			return invalid(fmt.Errorf("нет TG_BOT_TOKEN"))
 		}
-		tg := notify.NewTelegram(app.settings.Token, app.settings.ChatID)
+		tg := telegram.NewClient(app.settings.Token, app.settings.ChatID)
 		if app.settings.ChatID == "" {
 			hint, err := tg.ChatIDs(cmd.Context())
 			if err != nil {

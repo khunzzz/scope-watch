@@ -40,6 +40,8 @@ const (
 // The app keeps its normal endpoints, TLS checks and HTTP transport.
 type platformFixture struct {
 	mu                                                sync.Mutex
+	listFailures                                      []int
+	listRequests                                      int
 	newProgram, scopeChanged, telegramDown, tasksDown bool
 	messages                                          []string
 	blockList, listStarted                            chan struct{}
@@ -58,6 +60,7 @@ func readFixture(t *testing.T, root, name string) json.RawMessage {
 func newFixture(t *testing.T, root string) *platformFixture {
 	t.Helper()
 	f := &platformFixture{standoff: map[string]json.RawMessage{}, bizone: readFixture(t, root, "bizone_tbank.json"), tasks: readFixture(t, root, "bizone_tasks.json"), rewards: readFixture(t, root, "standoff_flowwow_page.json")}
+	f.listFailures = []int{http.StatusTooManyRequests, http.StatusServiceUnavailable}
 	var programs []json.RawMessage
 	if err := json.Unmarshal(readFixture(t, root, "standoff_list.json"), &programs); err != nil {
 		t.Fatal(err)
@@ -80,6 +83,19 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.Host {
 	case standoffHost:
 		if r.URL.Path == "/programs" {
+			f.mu.Lock()
+			f.listRequests++
+			status := http.StatusOK
+			if len(f.listFailures) > 0 {
+				status = f.listFailures[0]
+				f.listFailures = f.listFailures[1:]
+			}
+			f.mu.Unlock()
+			if status != http.StatusOK {
+				w.Header().Set("Retry-After", "0")
+				http.Error(w, "temporary platform failure", status)
+				return
+			}
 			if block != nil {
 				select {
 				case started <- struct{}{}:
@@ -314,6 +330,12 @@ func TestServiceE2E(t *testing.T) {
 	h.run(2, "history", "-n", "0")
 	h.run(2, "run", "--only", "unknown")
 	h.run(0, "run")
+	fixture.mu.Lock()
+	listRequests := fixture.listRequests
+	fixture.mu.Unlock()
+	if listRequests != 3 {
+		t.Fatalf("expected recovery after HTTP 429 and 503; list requests: %d", listRequests)
+	}
 	if fixture.messageCount() != 1 {
 		t.Fatal("initial snapshot should produce one summary")
 	}
