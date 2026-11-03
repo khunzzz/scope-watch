@@ -34,6 +34,7 @@ const (
 	standoffHost = "bugbounty.standoff365.com"
 	bizoneHost   = "bugbounty.bi.zone"
 	telegramHost = "api.telegram.org"
+	testToken    = "1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 )
 
 // All requests from the actual binary are confined to a loopback CONNECT proxy.
@@ -43,6 +44,9 @@ type platformFixture struct {
 	listFailures                                      []int
 	listRequests                                      int
 	newProgram, scopeChanged, telegramDown, tasksDown bool
+	telegramRedirect, telegramError, listRedirect     string
+	telegramDrop                                      bool
+	captured, leakedReferer                           bool
 	messages                                          []string
 	blockList, listStarted                            chan struct{}
 	standoff                                          map[string]json.RawMessage
@@ -77,12 +81,26 @@ func newFixture(t *testing.T, root string) *platformFixture {
 func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	newProgram, scopeChanged, telegramDown, tasksDown := f.newProgram, f.scopeChanged, f.telegramDown, f.tasksDown
+	redirect, apiError, listRedirect := f.telegramRedirect, f.telegramError, f.listRedirect
+	drop := f.telegramDrop
 	block, started := f.blockList, f.listStarted
 	f.mu.Unlock()
 	write := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
+	if r.URL.Path == "/capture" {
+		f.mu.Lock()
+		f.captured = true
+		f.leakedReferer = strings.Contains(r.Referer(), testToken)
+		f.mu.Unlock()
+		write(map[string]any{"ok": true})
+		return
+	}
 	switch r.Host {
 	case standoffHost:
 		if r.URL.Path == "/programs" {
+			if listRedirect != "" {
+				http.Redirect(w, r, listRedirect, http.StatusFound)
+				return
+			}
 			f.mu.Lock()
 			f.listRequests++
 			status := http.StatusOK
@@ -153,6 +171,26 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	case telegramHost:
+		if r.URL.Path != "/bot"+testToken+"/sendMessage" {
+			http.Error(w, "unexpected bot credential or method", http.StatusUnauthorized)
+			return
+		}
+		if redirect != "" {
+			http.Redirect(w, r, redirect, http.StatusTemporaryRedirect)
+			return
+		}
+		if drop {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				conn.Close()
+			}
+			return
+		}
+		if apiError != "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			write(map[string]any{"ok": false, "description": apiError})
+			return
+		}
 		if !strings.HasSuffix(r.URL.Path, "/sendMessage") {
 			http.NotFound(w, r)
 			return
@@ -239,7 +277,7 @@ func (h *harness) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd.Env = h.env
 	return cmd
 }
-func (h *harness) run(code int, args ...string) string {
+func (h *harness) runCaptured(code int, args ...string) (string, string) {
 	h.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -256,10 +294,17 @@ func (h *harness) run(code int, args ...string) string {
 		}
 		actual = exit.ExitCode()
 	}
+	assertNoToken(h.t, out.String()+stderr.String())
 	if actual != code {
 		h.t.Fatalf("%v: exit=%d want=%d\nstdout=%s\nstderr=%s", args, actual, code, out.String(), stderr.String())
 	}
-	return out.String()
+	return out.String(), stderr.String()
+}
+
+func (h *harness) run(code int, args ...string) string {
+	h.t.Helper()
+	out, _ := h.runCaptured(code, args...)
+	return out
 }
 
 type statusReport struct {
@@ -293,7 +338,8 @@ func (f *platformFixture) lastMessage() string {
 	return f.messages[len(f.messages)-1]
 }
 
-func TestServiceE2E(t *testing.T) {
+func newHarness(t *testing.T) *harness {
+	t.Helper()
 	root, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +355,7 @@ func TestServiceE2E(t *testing.T) {
 	}
 	fixture := newFixture(t, root)
 	proxy, ca := localHTTPS(t, fixture, dir)
-	overrides := map[string]string{"SCOPEWATCH_DATA": filepath.Join(dir, "data"), "SCOPEWATCH_DELAY": "0", "SCOPEWATCH_FAIL_ALERT": "1", "SCOPEWATCH_HEARTBEAT": filepath.Join(dir, "heartbeat"), "SCOPEWATCH_INTERVAL": "900", "TG_BOT_TOKEN_FILE": "", "TG_BOT_TOKEN": "1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TG_CHAT_ID": "1", "HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy, "ALL_PROXY": "", "all_proxy": "", "NO_PROXY": "", "no_proxy": "", "SSL_CERT_FILE": ca, "SSL_CERT_DIR": dir, "GORACE": "atexit_sleep_ms=0"}
+	overrides := map[string]string{"SCOPEWATCH_DATA": filepath.Join(dir, "data"), "SCOPEWATCH_DELAY": "0", "SCOPEWATCH_FAIL_ALERT": "1", "SCOPEWATCH_HEARTBEAT": filepath.Join(dir, "heartbeat"), "SCOPEWATCH_INTERVAL": "900", "TG_BOT_TOKEN_FILE": "", "TG_BOT_TOKEN": testToken, "TG_CHAT_ID": "1", "HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy, "ALL_PROXY": "", "all_proxy": "", "NO_PROXY": "", "no_proxy": "", "SSL_CERT_FILE": ca, "SSL_CERT_DIR": dir, "GORACE": "atexit_sleep_ms=0"}
 	env := []string{}
 	for _, v := range os.Environ() {
 		k, _, _ := strings.Cut(v, "=")
@@ -320,7 +366,13 @@ func TestServiceE2E(t *testing.T) {
 	for k, v := range overrides {
 		env = append(env, k+"="+v)
 	}
-	h := &harness{t: t, binary: binary, dir: dir, env: env, fixture: fixture}
+	return &harness{t: t, binary: binary, dir: dir, env: env, fixture: fixture}
+}
+
+func TestServiceE2E(t *testing.T) {
+	h := newHarness(t)
+	fixture, dir := h.fixture, h.dir
+	var err error
 	if text := h.run(0, "run", "--help"); !strings.Contains(text, "--dry-run") {
 		t.Fatal(text)
 	}

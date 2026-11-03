@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var tokenRE = regexp.MustCompile(`[0-9]{6,}:[A-Za-z0-9_-]{20,}`)
+var tokenRE = regexp.MustCompile(`[0-9]{6,}(?::|%(?:25)*3[aA])[A-Za-z0-9_-]{20,}`)
 var tagsRE = regexp.MustCompile(`<[^>]*>`)
 
 func Redact(s, token string) string {
@@ -59,7 +59,13 @@ type Client struct {
 
 func NewClient(token, chatID string) *Client {
 	return &Client{
-		http:   &http.Client{Timeout: 30 * time.Second},
+		http: &http.Client{
+			Timeout: 30 * time.Second,
+			// Bot credentials are part of the URL; redirects can expose them in Referer.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		token:  token,
 		chatID: chatID,
 		base:   "https://api.telegram.org",
@@ -102,9 +108,16 @@ func (t *Client) request(ctx context.Context, method string, payload any) (respo
 		return response{}, 0, fmt.Errorf("telegram request: %s", Redact(e.Error(), t.token))
 	}
 	defer r.Body.Close()
-	raw, e := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if r.StatusCode >= 300 && r.StatusCode < 400 {
+		return response{}, r.StatusCode, fmt.Errorf("telegram redirect refused")
+	}
+	const maxResponseBytes = 1 << 20
+	raw, e := io.ReadAll(io.LimitReader(r.Body, maxResponseBytes+1))
 	if e != nil {
 		return response{}, r.StatusCode, fmt.Errorf("telegram response: %s", Redact(e.Error(), t.token))
+	}
+	if len(raw) > maxResponseBytes {
+		return response{}, r.StatusCode, fmt.Errorf("telegram response exceeds %d bytes", maxResponseBytes)
 	}
 	var out response
 	if e = json.Unmarshal(raw, &out); e != nil {
