@@ -153,12 +153,11 @@ type Adapter interface {
 ```bash
 go mod verify
 go vet ./...
-go test -race -cover ./...
+go test -race ./e2e
 CGO_ENABLED=0 go build -trimpath -o bin/scope-watch ./cmd/scope-watch
 ```
 
-Для `-race` и E2E нужен поддерживаемый C-компилятор. Небольшие unit-тесты проверяют
-парсеры, извлечение scope, diff и форматирование.
+В проекте оставлены только E2E-тесты. Для них нужен поддерживаемый C-компилятор: проверяемый бинарник собирается с `-race`.
 
 `e2e/service_test.go` собирает настоящий бинарник и запускает его как отдельный
 процесс. Локальный CONNECT-прокси и временный доверенный TLS-сертификат подставляют

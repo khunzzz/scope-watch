@@ -30,6 +30,12 @@ import (
 	"time"
 )
 
+const (
+	standoffHost = "bugbounty.standoff365.com"
+	bizoneHost   = "bugbounty.bi.zone"
+	telegramHost = "api.telegram.org"
+)
+
 // All requests from the actual binary are confined to a loopback CONNECT proxy.
 // The app keeps its normal endpoints, TLS checks and HTTP transport.
 type platformFixture struct {
@@ -72,7 +78,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	write := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
 	switch r.Host {
-	case "bugbounty.standoff365.com":
+	case standoffHost:
 		if r.URL.Path == "/programs" {
 			if block != nil {
 				select {
@@ -104,7 +110,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			raw, _ := json.Marshal(map[string]any{"props": map[string]any{"pageProps": f.rewards}})
 			fmt.Fprintf(w, `<script id="__NEXT_DATA__">%s</script>`, raw)
 		}
-	case "bugbounty.bi.zone":
+	case bizoneHost:
 		switch r.URL.Path {
 		case "/api/bug-bounty/tasks/":
 			if tasksDown {
@@ -130,7 +136,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 			http.NotFound(w, r)
 		}
-	case "api.telegram.org":
+	case telegramHost:
 		if !strings.HasSuffix(r.URL.Path, "/sendMessage") {
 			http.NotFound(w, r)
 			return
@@ -161,7 +167,7 @@ func localHTTPS(t *testing.T, f *platformFixture, dir string) (proxyURL, caFile 
 	if err != nil {
 		t.Fatal(err)
 	}
-	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "ScopeWatch local E2E"}, DNSNames: []string{"bugbounty.standoff365.com", "bugbounty.bi.zone", "api.telegram.org"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "ScopeWatch local E2E"}, DNSNames: []string{standoffHost, bizoneHost, telegramHost}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, pub, key)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +181,7 @@ func localHTTPS(t *testing.T, f *platformFixture, dir string) (proxyURL, caFile 
 	backend.StartTLS()
 	t.Cleanup(backend.Close)
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		allowed := map[string]bool{"bugbounty.standoff365.com:443": true, "bugbounty.bi.zone:443": true, "api.telegram.org:443": true}
+		allowed := map[string]bool{standoffHost + ":443": true, bizoneHost + ":443": true, telegramHost + ":443": true}
 		if r.Method != http.MethodConnect || !allowed[r.Host] {
 			http.Error(w, "external network is forbidden in E2E", 403)
 			return

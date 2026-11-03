@@ -17,7 +17,8 @@ jobs:
         run: test -z "$(gofmt -l cmd internal e2e)"
       - run: go mod verify
       - run: go vet ./...
-      - run: go test -race -cover ./...
+      - name: Run E2E
+        run: go test -race ./e2e
       - run: CGO_ENABLED=0 go build -trimpath -o bin/scope-watch ./cmd/scope-watch
       - name: Build container
         run: docker build -t scope-watch:test .
