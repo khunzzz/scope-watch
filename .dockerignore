@@ -1,8 +1,8 @@
 .git
-.venv
 .env
 data
 secrets
-tests
-**/__pycache__
-*.egg-info
+bin
+coverage.out
+testdata
+**/*_test.go

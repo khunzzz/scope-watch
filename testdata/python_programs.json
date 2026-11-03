@@ -1,0 +1,236 @@
+[
+  {
+    "platform": "standoff",
+    "slug": "anyquery",
+    "name": "AnyQuery",
+    "url": "https://bugbounty.standoff365.com/programs/anyquery",
+    "active": true,
+    "status": "published",
+    "rewards": {},
+    "assets": [
+      "*.diginetica.com",
+      "*.diginetica.net",
+      "anyplatform.ru"
+    ],
+    "out_of_scope": [],
+    "assets_source": "text",
+    "scope_md": "",
+    "versions": [],
+    "updated_at": "2026-10-02T07:16:27.716073Z",
+    "meta": {
+      "extractor": 2
+    },
+    "scope_md_sha256": "1f34b4ae466fcd640ffcbfda6ea604673cc64a4c9affcd2a81abcd4d054ee337"
+  },
+  {
+    "platform": "standoff",
+    "slug": "flowwow",
+    "name": "Flowwow",
+    "url": "https://bugbounty.standoff365.com/programs/flowwow",
+    "active": true,
+    "status": "published",
+    "rewards": {},
+    "assets": [
+      "android:com.flowwow",
+      "android:com.fwapp",
+      "android:com.fwdelivery",
+      "android:com.hoog.prod",
+      "api-email.flowwow.com",
+      "api-shop.flowwow.com",
+      "api2.flowwow.com",
+      "apis.flowwow.com",
+      "chats.flowwow.com",
+      "clientweb.flowwow.com",
+      "envio.flowwow.com",
+      "flowwow.com",
+      "ios:id1201155481",
+      "ios:id1670351411"
+    ],
+    "out_of_scope": [],
+    "assets_source": "text",
+    "scope_md": "",
+    "versions": [],
+    "updated_at": "2026-09-17T08:02:52.087267Z",
+    "meta": {
+      "extractor": 2
+    },
+    "scope_md_sha256": "5f957b88c42d3de57cb53e538c3f9866622f0712368ebccbde0b1aa8c468a426"
+  },
+  {
+    "platform": "standoff",
+    "slug": "tbank",
+    "name": "Т-Банк",
+    "url": "https://bugbounty.standoff365.com/programs/tbank",
+    "active": true,
+    "status": "published",
+    "rewards": {},
+    "assets": [
+      "*.tbank.ru",
+      "*.tcsbank.ru",
+      "*.tinkoff.ru",
+      "*.tinkoffinsurance.ru",
+      "ai.tbank.ru",
+      "tbank.ru",
+      "tcsbank.ru",
+      "tinkoff.ru",
+      "tinkoffinsurance.ru",
+      "www.tinkoff.ru"
+    ],
+    "out_of_scope": [],
+    "assets_source": "text",
+    "scope_md": "",
+    "versions": [],
+    "updated_at": "2026-10-02T09:17:11.057457Z",
+    "meta": {
+      "extractor": 2
+    },
+    "scope_md_sha256": "9bd7581f9bc95bcdf34c85d334833905bc45ccdf4235d4e175e494d037430609"
+  },
+  {
+    "platform": "bizone",
+    "slug": "tbank",
+    "name": "Т-Банк",
+    "url": "https://bugbounty.bi.zone/companies/tbank",
+    "active": true,
+    "status": "active",
+    "rewards": {
+      "low": [
+        0,
+        10000
+      ],
+      "medium": [
+        10000,
+        50000
+      ],
+      "high": [
+        50000,
+        400000
+      ],
+      "critical": [
+        400000,
+        1000000
+      ]
+    },
+    "assets": [
+      "*.journal.tinkoff.ru",
+      "*.tcsbank.ru",
+      "*.tinkoff.ru",
+      "*.tinkoffinsurance.ru",
+      "*.tinkoffjournal.ru",
+      "AI Products",
+      "android:com.idamob.tinkoff.android",
+      "android:com.tjuraniaapp",
+      "android:ru.tinkoff.accounting",
+      "android:ru.tinkoff.invest.course",
+      "android:ru.tinkoff.investing",
+      "android:ru.tinkoff.mvno",
+      "android:ru.tinkoff.sme",
+      "api-common.tinkoff.ru",
+      "api-invest.tinkoff.ru",
+      "api-travel.tinkoff.ru",
+      "api.tinkoff.ru",
+      "api.tinkoffinsurance.ru",
+      "broker-api.tinkofinsurance.ru",
+      "business.tinkoff.ru",
+      "chat-cms.tinkoff.ru",
+      "chat.tinkoff.ru",
+      "crm-sme-service-wo.tinkoff.ru",
+      "crm-tm-service-wo.tinkoff.ru",
+      "crmp.tinkoff.ru",
+      "crmv-wo.tinkoff.ru",
+      "files-tapi.tinkoff.ru",
+      "id.tinkoff.ru",
+      "idcm.tinkoff.ru",
+      "ios:id1031837973",
+      "ios:id1183786286",
+      "ios:id1239730629",
+      "ios:id1255182214",
+      "ios:id1518001692",
+      "ios:id1562821703",
+      "ios:id455652438",
+      "j.tinkoff.ru",
+      "journal.tinkoff.ru",
+      "karmic-help.tinkoff.ru (без выплат)",
+      "partner.tinkoffinsurance.ru",
+      "rabota.tinkoff.ru",
+      "secure.tinkoff.ru",
+      "securepay.tinkoff.ru",
+      "tapi.tinkoff.ru",
+      "tcrm-api-wo.tinkoff.ru",
+      "tcrm-app-wo.tinkoff.ru",
+      "tcrm-ins-wo.tinkoff.ru",
+      "tcrm-queue-admin.tinkoff.ru",
+      "tmsg.tinkoff.ru",
+      "unidraw.io",
+      "webim.tinkoff.ru",
+      "weboffice.tinkoff.ru",
+      "www.tinkoff.ru",
+      "www.tinkoffinsurance.ru"
+    ],
+    "out_of_scope": [
+      "acdn.tinkoff.ru",
+      "cdn.t-capital-funds.ru",
+      "cdn.tbank.ru",
+      "ctf.tinkoff.ru",
+      "github.com",
+      "opis-cdn.tinkoffjournal.ru"
+    ],
+    "assets_source": "structured",
+    "scope_md": "",
+    "versions": [
+      "rule:1"
+    ],
+    "updated_at": "2026-07-10T12:25:16.495748Z",
+    "meta": {
+      "extractor": 2
+    },
+    "scope_md_sha256": "19de3661c2ecdf15723a0d1e1a7199795c365c33ef18099babc85fbc0ebfac3c"
+  },
+  {
+    "platform": "bizone",
+    "slug": "kaspersky",
+    "name": "Продукты «Лаборатории Касперского»",
+    "url": "https://bugbounty.bi.zone/companies/kaspersky",
+    "active": true,
+    "status": "active",
+    "rewards": {
+      "low": [
+        0,
+        40000
+      ],
+      "medium": [
+        0,
+        400000
+      ],
+      "high": [
+        0,
+        800000
+      ],
+      "critical": [
+        0,
+        1600000
+      ]
+    },
+    "assets": [
+      "www.kaspersky.com",
+      "www.kaspersky.ru (без выплат)"
+    ],
+    "out_of_scope": [
+      "support.kaspersky.ru",
+      "Локальные атаки, изначально выполненные с административными (или более высокими) привилегиями.",
+      "Обход лицензионных ограничений приложений «Лаборатории Касперского» без влияния на безопасность законных пользователей.",
+      "Онлайн-сервисы и сайты «Лаборатории Касперского», а также другие сетевые службы.",
+      "Уязвимости в стороннем программном обеспечении (библиотеки, операционные системы и т.д.)."
+    ],
+    "assets_source": "structured",
+    "scope_md": "",
+    "versions": [
+      "rule:1"
+    ],
+    "updated_at": "2026-04-15T17:05:11.144016Z",
+    "meta": {
+      "extractor": 2
+    },
+    "scope_md_sha256": "ddbdea5476e19d4a99d9d0e5ef64de75c9379d05b84652f64b7441bfdc938b59"
+  }
+]
