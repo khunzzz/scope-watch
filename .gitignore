@@ -1,7 +1,6 @@
-.venv/
-__pycache__/
-*.pyc
 .env
-data/
-secrets/
-*.egg-info/
+/data/
+/secrets/
+/bin/
+/coverage.out
+*.test
