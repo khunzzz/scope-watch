@@ -4,8 +4,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -19,180 +17,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/khunzzz/scope-watch/internal/adapters"
 	"github.com/khunzzz/scope-watch/internal/config"
 	"github.com/khunzzz/scope-watch/internal/httpclient"
 	"github.com/khunzzz/scope-watch/internal/linker"
 	"github.com/khunzzz/scope-watch/internal/model"
-	"github.com/khunzzz/scope-watch/internal/notify"
 	"github.com/khunzzz/scope-watch/internal/runner"
 	"github.com/khunzzz/scope-watch/internal/storage"
 )
 
-type stringsFlag []string
-
-func (s *stringsFlag) String() string     { return strings.Join(*s, ",") }
-func (s *stringsFlag) Set(v string) error { *s = append(*s, v); return nil }
-
-const usage = `scope-watch — мониторинг публичных bug bounty программ
-
-Commands:
-  run [--dry-run] [--only PLATFORM]  Один прогон
-  loop [--only PLATFORM]            Периодические проверки
-  seed [--only PLATFORM]            Сохранить базу без событий об изменениях
-  history [-n 20] [--program SLUG]   Журнал изменений
-  status [--json]                  Свежесть данных, сбои и очередь Telegram
-  links                            Связи компаний между платформами
-  export [-o FILE]                  Общий scope в JSON
-  test-notify                      Проверка Telegram / получение chat_id
-  healthcheck                      Проверка heartbeat контейнера
-
-Global option: -v, --verbose
-`
-
-func Execute(ctx context.Context, args []string, out, stderr io.Writer) int {
-	verbose := false
-	for len(args) > 0 && (args[0] == "-v" || args[0] == "--verbose") {
-		verbose = true
-		args = args[1:]
-	}
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(out, usage)
-		if len(args) == 0 {
-			return 2
-		}
-		return 0
-	}
-	command := args[0]
-	if !slices.Contains([]string{"run", "loop", "seed", "history", "links", "export", "test-notify", "healthcheck", "status"}, command) {
-		fmt.Fprintf(stderr, "unknown command %q\n", command)
-		return 2
-	}
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	fs.BoolVar(&verbose, "v", verbose, "verbose logs")
-	fs.BoolVar(&verbose, "verbose", verbose, "verbose logs")
-	var only stringsFlag
-	dry := false
-	jsonStatus := false
-	if command == "status" {
-		fs.BoolVar(&jsonStatus, "json", false, "machine-readable status")
-	}
-	limit := 20
-	program, output := "", ""
-	if command == "run" || command == "seed" || command == "loop" {
-		fs.Var(&only, "only", "platform (repeatable)")
-	}
-	if command == "run" {
-		fs.BoolVar(&dry, "dry-run", false, "print without sending or saving snapshots")
-	}
-	if command == "history" {
-		fs.IntVar(&limit, "n", 20, "number of changes")
-		fs.StringVar(&program, "program", "", "program slug")
-	}
-	if command == "export" {
-		fs.StringVar(&output, "o", "", "output file")
-		fs.StringVar(&output, "output", "", "output file")
-	}
-	if err := fs.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() > 0 {
-		fmt.Fprintln(stderr, "unexpected positional arguments:", strings.Join(fs.Args(), " "))
-		return 2
-	}
-	if limit < 1 {
-		fmt.Fprintln(stderr, "-n must be positive")
-		return 2
-	}
-	if command == "healthcheck" {
-		if err := healthcheck(); err != nil {
-			fmt.Fprintln(stderr, err)
-			return 1
-		}
-		return 0
-	}
-	settings, err := config.FromEnv()
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	safeErr := notify.RedactingWriter{Writer: stderr, Token: settings.Token}
-	level := slog.LevelInfo
-	if verbose {
-		level = slog.LevelDebug
-	}
-	log := slog.New(slog.NewTextHandler(safeErr, &slog.HandlerOptions{Level: level}))
-	client := httpclient.New(settings.RequestDelay)
-	defer client.HTTP.CloseIdleConnections()
-	r, err := runner.New(settings, adapters.New(client), log)
-	if err != nil {
-		fmt.Fprintln(safeErr, err)
-		return 2
-	}
-	for _, name := range only {
-		if !slices.Contains(r.Names(), name) {
-			fmt.Fprintf(safeErr, "unknown platform %q (available: %s)\n", name, strings.Join(r.Names(), ", "))
-			return 2
-		}
-	}
-	var notifier runner.Notifier = notify.Stdout{Writer: out}
-	if !dry && settings.HasTelegram() {
-		notifier = notify.NewTelegram(settings.Token, settings.ChatID)
-	}
-	switch command {
-	case "run", "seed":
-		if command == "run" && !dry && !settings.HasTelegram() {
-			fmt.Fprintln(safeErr, "нужны TG_BOT_TOKEN и TG_CHAT_ID; для проверки — --dry-run")
-			return 2
-		}
-		var result runner.Result
-		result, err = r.Run(ctx, notifier, runner.Options{Platforms: only, Seed: command == "seed", DryRun: dry})
-		if err == nil && (result.Unsent > 0 || len(result.FailedPlatforms) > 0) {
-			return 1
-		}
-	case "loop":
-		if !settings.HasTelegram() {
-			fmt.Fprintln(safeErr, "нужны TG_BOT_TOKEN и TG_CHAT_ID")
-			return 2
-		}
-		err = loop(ctx, settings, r, notifier, only, log)
-	case "status":
-		err = showStatus(ctx, settings, r.Names(), out, jsonStatus)
-	case "test-notify":
-		if settings.Token == "" {
-			fmt.Fprintln(safeErr, "нет TG_BOT_TOKEN")
-			return 2
-		}
-		tg := notify.NewTelegram(settings.Token, settings.ChatID)
-		if settings.ChatID == "" {
-			var hint string
-			hint, err = tg.ChatIDs(ctx)
-			if err == nil {
-				fmt.Fprintln(out, "TG_CHAT_ID не задан. Чаты, которые писали боту:", hint)
-				return 2
-			}
-		} else {
-			err = tg.Send(ctx, "✅ <b>scope-watch</b> на связи.\n<pre>*.example.ru</pre>")
-			if err == nil {
-				fmt.Fprintln(out, "отправлено")
-			}
-		}
-	default:
-		err = inspect(ctx, settings, r, command, limit, program, output, out)
-	}
-	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
-		return 0
-	}
-	if err != nil {
-		fmt.Fprintln(safeErr, err)
-		return 1
-	}
-	return 0
-}
 func loop(ctx context.Context, s config.Settings, r *runner.Runner, n runner.Notifier, only []string, log *slog.Logger) error {
 	for {
 		started := time.Now()
@@ -412,7 +244,7 @@ func showStatus(ctx context.Context, s config.Settings, names []string, out io.W
 		}{platforms, len(queue)})
 	}
 	for _, p := range platforms {
-		fresh := "неизвестно (нужен успешный прогон Go-версии)"
+		fresh := "успешных сборов ещё не было"
 		if p.LastSuccess != nil {
 			fresh = p.LastSuccess.Format(time.RFC3339)
 		}

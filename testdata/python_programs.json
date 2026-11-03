@@ -6,7 +6,7 @@
     "url": "https://bugbounty.standoff365.com/programs/anyquery",
     "active": true,
     "status": "published",
-    "rewards": {},
+    "rewards": null,
     "assets": [
       "*.diginetica.com",
       "*.diginetica.net",
@@ -29,7 +29,7 @@
     "url": "https://bugbounty.standoff365.com/programs/flowwow",
     "active": true,
     "status": "published",
-    "rewards": {},
+    "rewards": null,
     "assets": [
       "android:com.flowwow",
       "android:com.fwapp",
@@ -63,7 +63,7 @@
     "url": "https://bugbounty.standoff365.com/programs/tbank",
     "active": true,
     "status": "published",
-    "rewards": {},
+    "rewards": null,
     "assets": [
       "*.tbank.ru",
       "*.tcsbank.ru",

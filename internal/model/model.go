@@ -8,12 +8,13 @@ const NoBounty = " (без выплат)"
 var Severities = []string{"low", "medium", "high", "critical"}
 
 type Program struct {
-	Platform     string           `json:"platform"`
-	Slug         string           `json:"slug"`
-	Name         string           `json:"name"`
-	URL          string           `json:"url"`
-	Active       bool             `json:"active"`
-	Status       string           `json:"status"`
+	Platform string `json:"platform"`
+	Slug     string `json:"slug"`
+	Name     string `json:"name"`
+	URL      string `json:"url"`
+	Active   bool   `json:"active"`
+	Status   string `json:"status"`
+	// Rewards is nil until loaded; a non-nil empty map means no payouts.
 	Rewards      map[string][]int `json:"rewards"`
 	Assets       []string         `json:"assets"`
 	OutOfScope   []string         `json:"out_of_scope"`
@@ -38,11 +39,13 @@ func (p Program) Clone() Program {
 	p.Assets = append([]string{}, p.Assets...)
 	p.OutOfScope = append([]string{}, p.OutOfScope...)
 	p.Versions = append([]string{}, p.Versions...)
-	rewards := make(map[string][]int, len(p.Rewards))
-	for k, v := range p.Rewards {
-		rewards[k] = append([]int{}, v...)
+	if p.Rewards != nil {
+		rewards := make(map[string][]int, len(p.Rewards))
+		for k, v := range p.Rewards {
+			rewards[k] = append([]int{}, v...)
+		}
+		p.Rewards = rewards
 	}
-	p.Rewards = rewards
 	meta := make(map[string]any, len(p.Meta))
 	for k, v := range p.Meta {
 		meta[k] = v
@@ -71,14 +74,10 @@ type Fetched struct {
 	Failed   []string
 }
 
-// RewardDelta retains the Python history representation: [severity, before, after].
 type RewardDelta struct {
-	Severity      string
-	Before, After []int
-}
-
-func (r RewardDelta) MarshalJSON() ([]byte, error) {
-	return json.Marshal([3]any{r.Severity, r.Before, r.After})
+	Severity string `json:"severity"`
+	Before   []int  `json:"before"`
+	After    []int  `json:"after"`
 }
 
 type Change struct {

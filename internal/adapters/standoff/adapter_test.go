@@ -94,7 +94,7 @@ func TestRewardsCacheAndFailure(t *testing.T) {
 		t.Fatal("mutated previous snapshot")
 	}
 	got, e = a.Fetch(context.Background(), nil)
-	if e != nil || len(got.Programs) != 1 || len(got.Programs[0].Rewards) != 0 {
+	if e != nil || len(got.Programs) != 1 || got.Programs[0].Rewards != nil {
 		t.Fatal("new program without rewards must survive", e)
 	}
 }
@@ -115,6 +115,124 @@ func TestListIntegrity(t *testing.T) {
 	}
 	if _, e := New(c).Fetch(context.Background(), nil); e == nil {
 		t.Fatal("truncated pagination accepted")
+	}
+}
+
+func TestRejectIncompleteList(t *testing.T) {
+	first := programData{Slug: "first", Visibility: "public"}
+	second := programData{Slug: "second", Visibility: "public"}
+	for name, pages := range map[string][]any{
+		"repeated page": {
+			map[string]any{"programs": []programData{first}, "total": 2},
+			map[string]any{"programs": []programData{first}, "total": 2},
+		},
+		"changed count": {
+			map[string]any{"programs": []programData{first}, "total": 3},
+			map[string]any{"programs": []programData{second}, "total": 2},
+		},
+		"missing list": {
+			map[string]any{"programs": []programData{first}},
+			map[string]any{},
+		},
+		"invalid count": {
+			map[string]any{"programs": []programData{first}, "total": -1},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			i := 0
+			c := &fakeClient{fn: func(string, url.Values) (any, error) {
+				if i >= len(pages) {
+					t.Fatal("requested an unexpected page")
+				}
+				p := pages[i]
+				i++
+				return p, nil
+			}}
+			if _, err := New(c).list(context.Background()); err == nil {
+				t.Fatal("incomplete list accepted")
+			}
+		})
+	}
+}
+
+func TestMissingRewardPreservesCache(t *testing.T) {
+	raw := raws(t)["flowwow"]
+	old, err := parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Rewards = map[string][]int{"critical": {50000, 70000}}
+	old.Meta["rewards_at"] = 1
+	c := &fakeClient{fn: func(u string, _ url.Values) (any, error) {
+		if strings.HasSuffix(u, "/programs") {
+			return map[string]any{"programs": []programData{raw}, "total": 1}, nil
+		}
+		return map[string]any{}, nil
+	}}
+	a := New(c)
+	a.now = func() time.Time { return time.Unix(1000000, 0) }
+	got, err := a.Fetch(context.Background(), map[string]model.Program{raw.Slug: old})
+	if err != nil || len(got.Programs) != 1 || len(got.Failed) != 1 {
+		t.Fatalf("fetch: %+v, %v", got, err)
+	}
+	if !reflect.DeepEqual(got.Programs[0].Rewards, old.Rewards) || got.Programs[0].MetaNumber("rewards_at") != 1 {
+		t.Fatalf("missing reward replaced cache: %+v", got.Programs[0])
+	}
+	// Null has no confirmed API meaning and must not erase cached payouts.
+	c.fn = func(string, url.Values) (any, error) {
+		return map[string]any{"reward": nil}, nil
+	}
+	if _, err := a.loadRewards(context.Background(), raw.Slug); err == nil {
+		t.Fatal("null reward accepted as known payouts")
+	}
+}
+
+func TestRewardKnowledgeAndCache(t *testing.T) {
+	raw := raws(t)["flowwow"]
+	old, err := parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Rewards != nil {
+		t.Fatal("list-only program claims known payouts")
+	}
+	now := time.Unix(1000000, 0)
+	old.Meta["rewards_at"] = float64(now.Unix())
+	var reward any
+	c := &fakeClient{fn: func(u string, _ url.Values) (any, error) {
+		if strings.HasSuffix(u, "/programs") {
+			return map[string]any{"programs": []programData{raw}, "total": 1}, nil
+		}
+		return map[string]any{"reward": reward}, nil
+	}}
+	a := New(c)
+	a.now = func() time.Time { return now }
+	got, err := a.Fetch(context.Background(), map[string]model.Program{raw.Slug: old})
+	if err != nil || len(got.Failed) != 1 || got.Programs[0].Rewards != nil || len(c.calls) != 2 {
+		t.Fatalf("unknown payouts not retried/preserved: %+v, %v", got, err)
+	}
+	reward = map[string]rewardData{"critical": {0, 0}}
+	got, err = a.Fetch(context.Background(), map[string]model.Program{raw.Slug: old})
+	if err != nil || len(got.Failed) != 0 || got.Programs[0].Rewards == nil || len(got.Programs[0].Rewards) != 0 {
+		t.Fatalf("zero payouts not marked known: %+v, %v", got, err)
+	}
+	c.calls = nil
+	got, err = a.Fetch(context.Background(), map[string]model.Program{raw.Slug: got.Programs[0]})
+	if err != nil || len(c.calls) != 1 || got.Programs[0].Rewards == nil {
+		t.Fatalf("known empty payouts not cached: %+v, %v", got, err)
+	}
+}
+
+func TestRewardsWithMetadata(t *testing.T) {
+	var page any
+	testutil.Load(t, "standoff_flowwow_page.json", &page)
+	c := &fakeClient{fn: func(string, url.Values) (any, error) { return page, nil }}
+	got, err := New(c).loadRewards(context.Background(), "flowwow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 || got["critical"].MinReward != 50000 || got["critical"].MaxReward != 70000 {
+		t.Fatalf("missing severity rewards: %+v", got)
 	}
 }
 func TestSpecialRulesAndFinished(t *testing.T) {

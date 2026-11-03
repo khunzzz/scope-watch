@@ -4,6 +4,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,17 +12,14 @@ import (
 	"slices"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
+
 	"github.com/khunzzz/scope-watch/internal/model"
 	_ "modernc.org/sqlite"
 )
 
-const schema = `
-CREATE TABLE IF NOT EXISTS programs (platform TEXT NOT NULL,slug TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(platform,slug));
-CREATE TABLE IF NOT EXISTS changes (id INTEGER PRIMARY KEY,ts REAL NOT NULL,platform TEXT NOT NULL,slug TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS changes_program ON changes(platform,slug,ts);
-CREATE TABLE IF NOT EXISTS health (platform TEXT PRIMARY KEY,fails INTEGER NOT NULL DEFAULT 0,alerted INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY,ts REAL NOT NULL,html TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS platform_status(platform TEXT PRIMARY KEY,last_attempt REAL NOT NULL,last_success REAL);`
+//go:embed schema.sql
+var schema string
 
 type Store struct{ db *sql.DB }
 
@@ -45,7 +43,7 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 }
 func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) Load(ctx context.Context, platform string) (map[string]model.Program, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT data FROM programs WHERE platform = ? ORDER BY slug", platform)
+	rows, err := sq.Select("data").From("programs").Where(sq.Eq{"platform": platform}).OrderBy("slug").RunWith(s.db).QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +66,7 @@ func (s *Store) Load(ctx context.Context, platform string) (map[string]model.Pro
 	return out, rows.Err()
 }
 func (s *Store) Health(ctx context.Context) (map[string]model.Health, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT platform,fails,alerted,last_error FROM health")
+	rows, err := sq.Select("platform", "fails", "alerted", "last_error").From("health").RunWith(s.db).QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +94,7 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 	}
 	slices.Sort(keys)
 	for _, name := range keys {
-		if _, err = tx.ExecContext(ctx, "DELETE FROM programs WHERE platform = ?", name); err != nil {
+		if _, err = sq.Delete("programs").Where(sq.Eq{"platform": name}).RunWith(tx).ExecContext(ctx); err != nil {
 			return err
 		}
 		for _, p := range snapshots[name] {
@@ -107,13 +105,13 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 			if e != nil {
 				return e
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO programs(platform,slug,data) VALUES(?,?,?)", name, p.Slug, string(raw)); err != nil {
+			if _, err = sq.Insert("programs").Columns("platform", "slug", "data").Values(name, p.Slug, string(raw)).RunWith(tx).ExecContext(ctx); err != nil {
 				return err
 			}
 		}
 	}
 	for name, h := range health {
-		if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO health(platform,fails,alerted,last_error) VALUES(?,?,?,?)", name, h.Fails, h.Alerted, h.LastError); err != nil {
+		if _, err = sq.Insert("health").Options("OR REPLACE").Columns("platform", "fails", "alerted", "last_error").Values(name, h.Fails, h.Alerted, h.LastError).RunWith(tx).ExecContext(ctx); err != nil {
 			return err
 		}
 	}
@@ -123,7 +121,7 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 		if _, ok := snapshots[name]; ok {
 			success = now
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO platform_status(platform,last_attempt,last_success) VALUES(?,?,?) ON CONFLICT(platform) DO UPDATE SET last_attempt=excluded.last_attempt,last_success=COALESCE(excluded.last_success,platform_status.last_success)", name, now, success); err != nil {
+		if _, err = sq.Insert("platform_status").Columns("platform", "last_attempt", "last_success").Values(name, now, success).Suffix("ON CONFLICT(platform) DO UPDATE SET last_attempt=excluded.last_attempt, last_success=COALESCE(excluded.last_success,platform_status.last_success)").RunWith(tx).ExecContext(ctx); err != nil {
 			return err
 		}
 	}
@@ -137,12 +135,12 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 		if e != nil {
 			return e
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO changes(ts,platform,slug,kind,data) VALUES(?,?,?,?,?)", now, c.Program.Platform, c.Program.Slug, c.Kind, string(raw)); err != nil {
+		if _, err = sq.Insert("changes").Columns("ts", "platform", "slug", "kind", "data").Values(now, c.Program.Platform, c.Program.Slug, c.Kind, string(raw)).RunWith(tx).ExecContext(ctx); err != nil {
 			return err
 		}
 	}
 	for _, m := range messages {
-		if _, err = tx.ExecContext(ctx, "INSERT INTO outbox(ts,html) VALUES(?,?)", now, m); err != nil {
+		if _, err = sq.Insert("outbox").Columns("ts", "html").Values(now, m).RunWith(tx).ExecContext(ctx); err != nil {
 			return err
 		}
 	}
@@ -155,7 +153,7 @@ type Message struct {
 }
 
 func (s *Store) Outbox(ctx context.Context) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,html FROM outbox ORDER BY id")
+	rows, err := sq.Select("id", "html").From("outbox").OrderBy("id").RunWith(s.db).QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,19 +169,18 @@ func (s *Store) Outbox(ctx context.Context) ([]Message, error) {
 	return out, rows.Err()
 }
 func (s *Store) OutboxDone(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM outbox WHERE id = ?", id)
+	_, err := sq.Delete("outbox").Where(sq.Eq{"id": id}).RunWith(s.db).ExecContext(ctx)
 	return err
 }
 func (s *Store) History(ctx context.Context, limit int, slug string) ([]map[string]any, error) {
-	q := "SELECT ts,platform,slug,kind,data FROM changes"
-	args := []any{}
-	if slug != "" {
-		q += " WHERE slug = ?"
-		args = append(args, slug)
+	if limit < 1 {
+		return nil, fmt.Errorf("history limit must be positive")
 	}
-	q += " ORDER BY id DESC LIMIT ?"
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	query := sq.Select("ts", "platform", "slug", "kind", "data").From("changes").OrderBy("id DESC").Limit(uint64(limit))
+	if slug != "" {
+		query = query.Where(sq.Eq{"slug": slug})
+	}
+	rows, err := query.RunWith(s.db).QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +235,7 @@ func (s *Store) Status(ctx context.Context, names []string) ([]PlatformStatus, e
 			}
 		}
 		var attempt, success sql.NullFloat64
-		err = s.db.QueryRowContext(ctx, "SELECT last_attempt,last_success FROM platform_status WHERE platform=?", name).Scan(&attempt, &success)
+		err = sq.Select("last_attempt", "last_success").From("platform_status").Where(sq.Eq{"platform": name}).RunWith(s.db).QueryRowContext(ctx).Scan(&attempt, &success)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, err
 		}

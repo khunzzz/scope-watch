@@ -118,7 +118,7 @@ func Compare(old, new model.Program) model.Change {
 		ch.OOSAdded = difference(new.OutOfScope, old.OutOfScope)
 		ch.OOSRemoved = difference(old.OutOfScope, new.OutOfScope)
 	}
-	if len(old.Rewards) > 0 && len(new.Rewards) > 0 {
+	if old.Rewards != nil && new.Rewards != nil {
 		for _, s := range model.Severities {
 			if !reflect.DeepEqual(old.Rewards[s], new.Rewards[s]) {
 				ch.Rewards = append(ch.Rewards, model.RewardDelta{Severity: s, Before: old.Rewards[s], After: new.Rewards[s]})

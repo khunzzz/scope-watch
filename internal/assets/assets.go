@@ -13,7 +13,7 @@ import (
 )
 
 // Version changes when extraction semantics change, preventing false asset alerts.
-const Version = 3
+const Version = 1
 
 //go:embed tlds.txt
 var tldText string
@@ -184,7 +184,9 @@ func Extract(md string, exclude []string) []string {
 		}
 		u, e := url.Parse(raw)
 		if e == nil {
-			if d := normDomain(u.Hostname(), exclude); d != "" {
+			if globalIP(u.Hostname()) {
+				found[u.Hostname()] = true
+			} else if d := normDomain(u.Hostname(), exclude); d != "" {
 				found[d] = true
 			}
 		}

@@ -15,6 +15,7 @@ func TestExtract(t *testing.T) {
 		{"stores", "https://apps.apple.com/ru/app/x/id1201155481 https://www.rustore.ru/catalog/app/ru.corp.app", []string{"ios:id1201155481", "rustore:ru.corp.app"}},
 		{"inner-wildcards", `SSRF через rentgen\*.smailru.net; videostun*.okcdn.ru, call*-*.vkuser.net; **bold.ru**; rustore.ru/catalog/app/ru.alfabank.oavdo.amc; приложения ru.tinkoff.investing, com.vk.vkvideo; сайт ru.investing.com, youdrive.today`, []string{"android:com.vk.vkvideo", "android:ru.tinkoff.investing", "bold.ru", "call*-*.vkuser.net", "rentgen*.smailru.net", "ru.investing.com", "rustore:ru.alfabank.oavdo.amc", "videostun*.okcdn.ru", "youdrive.today"}},
 		{"markdown", "*.[tbank.ru](https://tbank.ru)", []string{"*.tbank.ru", "tbank.ru"}},
+		{"ip-urls", "http://81.19.64.1:8080/admin https://8.8.8.8/ http://192.168.1.1/private https://127.0.0.1", []string{"8.8.8.8", "81.19.64.1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

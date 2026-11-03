@@ -85,6 +85,31 @@ func TestMissing(t *testing.T) {
 		t.Fatal(changes)
 	}
 }
+
+func TestRewardAvailabilityTransitions(t *testing.T) {
+	paid := map[string][]int{"critical": {50000, 70000}}
+	empty := map[string][]int{}
+	for _, tt := range []struct {
+		name          string
+		before, after map[string][]int
+		want          []model.RewardDelta
+	}{
+		{"all removed", paid, empty, []model.RewardDelta{{Severity: "critical", Before: []int{50000, 70000}}}},
+		{"payments introduced", empty, paid, []model.RewardDelta{{Severity: "critical", After: []int{50000, 70000}}}},
+		{"still unpaid", empty, empty, nil},
+		{"load failed", paid, nil, nil},
+		{"first successful load", nil, paid, nil},
+		{"empty to unknown", empty, nil, nil},
+		{"unknown to empty", nil, empty, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Compare(model.Program{Rewards: tt.before}, model.Program{Rewards: tt.after})
+			if !reflect.DeepEqual(got.Rewards, tt.want) {
+				t.Fatalf("got %+v, want %+v", got.Rewards, tt.want)
+			}
+		})
+	}
+}
 func TestTextDiff(t *testing.T) {
 	for _, tt := range []struct{ old, new, want string }{{"-- x", "++ y", "--- x\n+++ y"}, {"a\nb", "a\nc", "-b\n+c"}, {"a\n\n", "a\n", ""}} {
 		if got := Text(tt.old, tt.new, 1500); got != tt.want {

@@ -66,7 +66,6 @@ func parse(raw programData) (model.Program, error) {
 		ScopeMD:      md,
 		UpdatedAt:    raw.UpdatedAt,
 		Meta:         map[string]any{"extractor": assets.Version},
-		Rewards:      map[string][]int{},
 		Versions:     []string{},
 	}, nil
 }

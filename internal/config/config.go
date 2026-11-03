@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bufio"
 	"fmt"
 	"math"
 	"os"
@@ -9,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Settings struct {
@@ -27,32 +28,11 @@ func (s Settings) String() string {
 }
 func (s Settings) GoString() string { return s.String() }
 func LoadDotEnv(path string) error {
-	f, e := os.Open(path)
-	if os.IsNotExist(e) {
+	err := godotenv.Load(path)
+	if os.IsNotExist(err) {
 		return nil
 	}
-	if e != nil {
-		return e
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		if _, set := os.LookupEnv(k); !set {
-			if e := os.Setenv(k, strings.Trim(strings.TrimSpace(v), "\"'")); e != nil {
-				return e
-			}
-		}
-	}
-	return sc.Err()
+	return err
 }
 func FromEnv() (Settings, error) {
 	s := Defaults()

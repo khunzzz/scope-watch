@@ -70,6 +70,10 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 		if ctx.Err() != nil {
 			return model.Fetched{}, ctx.Err()
 		}
+		if versionErr != nil {
+			// Unmarshal can populate a slice before returning a type error.
+			versions = nil
+		}
 		p, err := parse(detail, versions, byCompany[slug])
 		if err != nil {
 			return model.Fetched{}, err

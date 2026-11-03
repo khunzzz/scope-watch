@@ -4,7 +4,6 @@ package standoff
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"time"
 
 	"github.com/khunzzz/scope-watch/internal/model"
@@ -37,13 +36,12 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 			return model.Fetched{}, err
 		}
 		old, exists := prev[p.Slug]
-		stale := !exists || old.UpdatedAt != p.UpdatedAt || now-old.MetaNumber("rewards_at") > rewardTTL.Seconds()
+		stale := !exists || old.Rewards == nil || old.UpdatedAt != p.UpdatedAt || now-old.MetaNumber("rewards_at") > rewardTTL.Seconds()
 		loaded := false
 		if stale && p.Active {
-			var page struct{ Reward map[string]rewardData }
-			err := a.client.NextData(ctx, a.base+"/programs/"+url.PathEscape(p.Slug), nil, &page)
+			reward, err := a.loadRewards(ctx, p.Slug)
 			if err == nil {
-				p.Rewards = rewards(page.Reward)
+				p.Rewards = rewards(reward)
 				p.Meta["rewards_at"] = now
 				loaded = true
 			} else {

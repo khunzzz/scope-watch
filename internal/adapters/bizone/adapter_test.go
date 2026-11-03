@@ -52,7 +52,7 @@ func (c fakeClient) JSON(ctx context.Context, u string, q url.Values, out any) e
 func TestDetailFailurePreservesPrevious(t *testing.T) {
 	var raw programData
 	testutil.Load(t, "bizone_tbank.json", &raw)
-	broken, versionBroken, tasksBroken := false, false, false
+	broken, versionBroken, versionMalformed, tasksBroken := false, false, false, false
 	client := fakeClient{fn: func(u string, _ url.Values) (any, error) {
 		switch {
 		case strings.HasSuffix(u, "/tasks/"):
@@ -63,6 +63,9 @@ func TestDetailFailurePreservesPrevious(t *testing.T) {
 		case strings.HasSuffix(u, "/companies/"):
 			return map[string]any{"count": 1, "results": []map[string]any{{"id": 1, "slug": "tbank"}}}, nil
 		case strings.HasSuffix(u, "program-versions/"):
+			if versionMalformed {
+				return []any{map[string]any{"type": "rule", "version": 1}, map[string]any{"type": 42, "version": 2}}, nil
+			}
 			if versionBroken {
 				return nil, fmt.Errorf("versions down")
 			}
@@ -99,6 +102,11 @@ func TestDetailFailurePreservesPrevious(t *testing.T) {
 	got, e = a.Fetch(context.Background(), prev)
 	if e != nil || !reflect.DeepEqual(got.Programs[0].Versions, prev["tbank"].Versions) {
 		t.Fatal("lost versions")
+	}
+	versionMalformed = true
+	got, e = a.Fetch(context.Background(), nil)
+	if e != nil || len(got.Programs) != 1 || len(got.Programs[0].Versions) != 0 {
+		t.Fatalf("partially decoded versions accepted: %+v %v", got, e)
 	}
 	tasksBroken = true
 	if _, e = a.Fetch(context.Background(), prev); e == nil {
@@ -144,5 +152,12 @@ func TestTaskAssets(t *testing.T) {
 		if got := taskAssets(tt.task); !reflect.DeepEqual(got, tt.want) {
 			t.Fatalf("got %v want %v", got, tt.want)
 		}
+	}
+}
+
+func TestZeroRewardsAreKnown(t *testing.T) {
+	p, err := parse(programData{Slug: "unpaid"}, nil, nil)
+	if err != nil || p.Rewards == nil || len(p.Rewards) != 0 {
+		t.Fatalf("zero payouts must be known: %+v, %v", p, err)
 	}
 }
