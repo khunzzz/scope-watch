@@ -1,5 +1,4 @@
-// Package render formats changes into bounded Telegram HTML messages.
-package render
+package telegram
 
 import (
 	"fmt"
@@ -9,14 +8,13 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"github.com/khunzzz/scope-watch/internal/assets"
-	"github.com/khunzzz/scope-watch/internal/linker"
-	"github.com/khunzzz/scope-watch/internal/model"
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 const MessageMax = 4000
 
 func Units(s string) int { return len(utf16.Encode([]rune(s))) }
+
 func Clip(s string, n int) string {
 	r := []rune(s)
 	if len(r) > n {
@@ -24,6 +22,7 @@ func Clip(s string, n int) string {
 	}
 	return s
 }
+
 func escaped(s string, budget int) string {
 	var b strings.Builder
 	used := 0
@@ -38,6 +37,7 @@ func escaped(s string, budget int) string {
 	}
 	return b.String()
 }
+
 func Money(n int) string {
 	s := strconv.Itoa(n)
 	for i := len(s) - 3; i > 0; i -= 3 {
@@ -45,6 +45,7 @@ func Money(n int) string {
 	}
 	return s
 }
+
 func Range(r []int) string {
 	if len(r) != 2 {
 		return "—"
@@ -59,28 +60,31 @@ var severity = map[string]string{"low": "low", "medium": "medium", "high": "high
 
 type Renderer struct{ titles map[string]string }
 
-func New(titles map[string]string) *Renderer {
+func NewRenderer(titles map[string]string) *Renderer {
 	cp := map[string]string{}
 	for k, v := range titles {
 		cp[k] = v
 	}
 	return &Renderer{titles: cp}
 }
+
 func (r *Renderer) Title(name string) string {
 	if t := r.titles[name]; t != "" {
 		return t
 	}
 	return name
 }
-func (r *Renderer) link(p model.Program, text string) string {
+
+func (r *Renderer) link(p scope.Program, text string) string {
 	if text == "" {
 		text = r.Title(p.Platform)
 	}
 	return `<a href="` + html.EscapeString(p.URL) + `">` + escaped(text, 200) + `</a>`
 }
-func Rewards(p model.Program) string {
+
+func Rewards(p scope.Program) string {
 	parts := []string{}
-	for _, s := range model.Severities {
+	for _, s := range scope.Severities {
 		if v := p.Rewards[s]; len(v) == 2 {
 			parts = append(parts, severity[s]+" "+Range(v))
 		}
@@ -90,6 +94,7 @@ func Rewards(p model.Program) string {
 	}
 	return "💰 " + strings.Join(parts, " · ") + " ₽"
 }
+
 func AssetBlock(items []string, budget int) string {
 	out := []string{}
 	used := 0
@@ -104,7 +109,8 @@ func AssetBlock(items []string, budget int) string {
 	}
 	return "<pre>" + strings.Join(out, "\n") + "</pre>"
 }
-func splitKnown(items []string, peers []model.Program) ([]string, []string) {
+
+func splitKnown(items []string, peers []scope.Program) ([]string, []string) {
 	pool := map[string]bool{}
 	for _, p := range peers {
 		for _, a := range p.Assets {
@@ -113,7 +119,7 @@ func splitKnown(items []string, peers []model.Program) ([]string, []string) {
 	}
 	fresh, known := []string{}, []string{}
 	for _, a := range items {
-		if assets.Covered(a, pool) {
+		if scope.Covered(a, pool) {
 			known = append(known, a)
 		} else {
 			fresh = append(fresh, a)
@@ -121,14 +127,16 @@ func splitKnown(items []string, peers []model.Program) ([]string, []string) {
 	}
 	return fresh, known
 }
-func (r *Renderer) peerNames(peers []model.Program) string {
+
+func (r *Renderer) peerNames(peers []scope.Program) string {
 	names := []string{}
 	for _, p := range peers {
 		names = append(names, r.Title(p.Platform))
 	}
 	return escaped(strings.Join(names, ", "), 300)
 }
-func (r *Renderer) summary(p model.Program, peers []model.Program) []string {
+
+func (r *Renderer) summary(p scope.Program, peers []scope.Program) []string {
 	lines := []string{}
 	if len(p.Rewards) > 0 {
 		lines = append(lines, Rewards(p))
@@ -156,7 +164,8 @@ func (r *Renderer) summary(p model.Program, peers []model.Program) []string {
 	}
 	return lines
 }
-func (r *Renderer) section(c model.Change, peers []model.Program) []string {
+
+func (r *Renderer) section(c scope.Change, peers []scope.Program) []string {
 	p := c.Program
 	lines := []string{"<b>" + escaped(r.Title(p.Platform), 100) + "</b> · " + r.link(p, p.Name)}
 	if c.Kind == "new" {
@@ -189,7 +198,13 @@ func (r *Renderer) section(c model.Change, peers []model.Program) []string {
 		title  string
 		items  []string
 		budget int
-	}{{fmt.Sprintf("➖ Убраны ассеты (%d):", len(c.AssetsRemoved)), c.AssetsRemoved, 500}, {fmt.Sprintf("💸 Больше не платят за (%d):", len(c.BountyLost)), c.BountyLost, 400}, {fmt.Sprintf("💰 Теперь платят за (%d):", len(c.BountyGained)), c.BountyGained, 400}, {"🚫 Добавлено в out of scope:", c.OOSAdded, 400}, {"✅ Убрано из out of scope:", c.OOSRemoved, 400}} {
+	}{
+		{fmt.Sprintf("➖ Убраны ассеты (%d):", len(c.AssetsRemoved)), c.AssetsRemoved, 500},
+		{fmt.Sprintf("💸 Больше не платят за (%d):", len(c.BountyLost)), c.BountyLost, 400},
+		{fmt.Sprintf("💰 Теперь платят за (%d):", len(c.BountyGained)), c.BountyGained, 400},
+		{"🚫 Добавлено в out of scope:", c.OOSAdded, 400},
+		{"✅ Убрано из out of scope:", c.OOSRemoved, 400},
+	} {
 		if len(item.items) > 0 {
 			lines = append(lines, item.title, AssetBlock(item.items, item.budget))
 		}
@@ -234,7 +249,8 @@ func (r *Renderer) section(c model.Change, peers []model.Program) []string {
 	}
 	return lines
 }
-func icon(changes []model.Change) string {
+
+func icon(changes []scope.Change) string {
 	for _, c := range changes {
 		if c.Kind == "new" {
 			return "🆕"
@@ -252,10 +268,11 @@ func icon(changes []model.Change) string {
 	}
 	return "🔔"
 }
-func (r *Renderer) Render(changes []model.Change, l *linker.Linker) []string {
-	groups := map[string][]model.Change{}
+
+func (r *Renderer) Render(changes []scope.Change, l *scope.Linker) []string {
+	groups := map[string][]scope.Change{}
 	keys := []string{}
-	before := map[string]*model.Program{}
+	before := map[string]*scope.Program{}
 	for _, c := range changes {
 		k := l.GroupKey(c.Program)
 		if _, ok := groups[k]; !ok {
@@ -273,9 +290,9 @@ func (r *Renderer) Render(changes []model.Change, l *linker.Linker) []string {
 		for _, c := range chs {
 			changed[c.Program.Key()] = true
 		}
-		others := map[string]model.Program{}
+		others := map[string]scope.Program{}
 		for _, c := range chs {
-			peers := []model.Program{}
+			peers := []scope.Program{}
 			for _, p := range l.Peers(c.Program) {
 				if !changed[p.Key()] {
 					others[p.Key()] = p
@@ -321,8 +338,14 @@ func (r *Renderer) Render(changes []model.Change, l *linker.Linker) []string {
 	}
 	return messages
 }
-func (r *Renderer) MassChange(platform string, changes []model.Change) string {
-	lines := []string{fmt.Sprintf("⚠️ <b>%s</b>: за один прогон изменилось сразу %d программ. Похоже, площадка поменяла формат. Поштучно не рассылаю, детали: <code>scope-watch history</code>.", escaped(r.Title(platform), 100), len(changes))}
+
+func (r *Renderer) MassChange(platform string, changes []scope.Change) string {
+	lines := []string{fmt.Sprintf(
+		"⚠️ <b>%s</b>: за один прогон изменилось сразу %d программ. "+
+			"Похоже, площадка поменяла формат. Поштучно не рассылаю, "+
+			"детали: <code>scope-watch history</code>.",
+		escaped(r.Title(platform), 100), len(changes),
+	)}
 	for _, kind := range []string{"new", "removed", "updated"} {
 		names := []string{}
 		for _, c := range changes {
@@ -331,17 +354,30 @@ func (r *Renderer) MassChange(platform string, changes []model.Change) string {
 			}
 		}
 		if len(names) > 0 {
-			lines = append(lines, fmt.Sprintf("%s (%d): %s", map[string]string{"new": "🆕 новые", "removed": "🗑 пропали", "updated": "🔔 изменились"}[kind], len(names), escaped(strings.Join(names[:min(25, len(names))], ", "), 800)))
+			label := map[string]string{
+				"new":     "🆕 новые",
+				"removed": "🗑 пропали",
+				"updated": "🔔 изменились",
+			}[kind]
+			lines = append(lines, fmt.Sprintf("%s (%d): %s",
+				label, len(names), escaped(strings.Join(names[:min(25, len(names))], ", "), 800),
+			))
 		}
 	}
 	return strings.Join(lines, "\n")
 }
+
 func Seeded(lines []string) string {
 	return "🌱 <b>scope-watch</b>: база сохранена, по ней уведомлений не будет.\n" + html.EscapeString(strings.Join(lines, "\n"))
 }
+
 func (r *Renderer) HealthAlert(platform string, fails int, err string) string {
-	return fmt.Sprintf("⚠️ <b>%s</b> не отвечает %d проверок подряд.\n<code>%s</code>\nВозможно, поменяли API или вёрстку.", escaped(r.Title(platform), 100), fails, escaped(err, 300))
+	return fmt.Sprintf(
+		"⚠️ <b>%s</b> не отвечает %d проверок подряд.\n<code>%s</code>\nВозможно, поменяли API или вёрстку.",
+		escaped(r.Title(platform), 100), fails, escaped(err, 300),
+	)
 }
+
 func (r *Renderer) HealthOK(platform string) string {
 	return "✅ <b>" + escaped(r.Title(platform), 100) + "</b> снова доступен."
 }

@@ -1,5 +1,4 @@
-// Package runner owns the collection pipeline and its small dependency interfaces.
-package runner
+package app
 
 import (
 	"context"
@@ -8,12 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/khunzzz/scope-watch/internal/config"
-	"github.com/khunzzz/scope-watch/internal/diff"
-	"github.com/khunzzz/scope-watch/internal/linker"
-	"github.com/khunzzz/scope-watch/internal/model"
-	"github.com/khunzzz/scope-watch/internal/render"
-	"github.com/khunzzz/scope-watch/internal/runlock"
+	"github.com/khunzzz/scope-watch/internal/notify/telegram"
+	"github.com/khunzzz/scope-watch/internal/scope"
 	"github.com/khunzzz/scope-watch/internal/storage"
 )
 
@@ -22,20 +17,22 @@ import (
 type Adapter interface {
 	Name() string
 	Title() string
-	Fetch(context.Context, map[string]model.Program) (model.Fetched, error)
+	Fetch(context.Context, map[string]scope.Program) (scope.Fetched, error)
 }
+
 type Notifier interface {
 	Send(context.Context, string) error
 }
+
 type Runner struct {
-	settings config.Settings
+	settings Settings
 	adapters map[string]Adapter
 	names    []string
-	render   *render.Renderer
+	render   *telegram.Renderer
 	log      *slog.Logger
 }
 
-func New(settings config.Settings, adapters []Adapter, log *slog.Logger) (*Runner, error) {
+func newRunner(settings Settings, adapters []Adapter, log *slog.Logger) (*Runner, error) {
 	r := &Runner{settings: settings, adapters: map[string]Adapter{}, log: log}
 	if log == nil {
 		r.log = slog.Default()
@@ -52,10 +49,12 @@ func New(settings config.Settings, adapters []Adapter, log *slog.Logger) (*Runne
 		r.adapters[a.Name()] = a
 		titles[a.Name()] = a.Title()
 	}
-	r.render = render.New(titles)
+	r.render = telegram.NewRenderer(titles)
 	return r, nil
 }
+
 func (r *Runner) Names() []string { return append([]string{}, r.names...) }
+
 func (r *Runner) Titles() map[string]string {
 	out := map[string]string{}
 	for n, a := range r.adapters {
@@ -68,31 +67,34 @@ type Options struct {
 	Platforms    []string
 	Seed, DryRun bool
 }
+
 type Result struct {
 	Messages        []string
-	Changes         []model.Change
+	Changes         []scope.Change
 	Seeded          []string
 	Unsent          int
 	FailedPlatforms []string
 }
+
 type collected struct {
-	prev    map[string]model.Program
-	current []model.Program
+	prev    map[string]scope.Program
+	current []scope.Program
 	err     error
 }
 
-func sortedPrograms(m map[string]model.Program) []model.Program {
+func sortedPrograms(m map[string]scope.Program) []scope.Program {
 	keys := []string{}
 	for k := range m {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
-	out := []model.Program{}
+	out := []scope.Program{}
 	for _, k := range keys {
 		out = append(out, m[k])
 	}
 	return out
 }
+
 func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Result, err error) {
 	platforms := opt.Platforms
 	if len(platforms) == 0 {
@@ -110,7 +112,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 		}
 	}
 	if !opt.DryRun {
-		lock, e := runlock.Acquire(r.settings.DataDir)
+		lock, e := acquireRunLock(r.settings.DataDir)
 		if e != nil {
 			return result, e
 		}
@@ -129,7 +131,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			err = e
 		}
 	}()
-	all := map[string]map[string]model.Program{}
+	all := map[string]map[string]scope.Program{}
 	for _, name := range r.names {
 		all[name], err = store.Load(ctx, name)
 		if err != nil {
@@ -154,7 +156,9 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 				e = fmt.Errorf("пустой список программ")
 			} else if len(f.Failed) > 0 && float64(len(f.Failed)) > r.settings.MaxFailShare*float64(f.Total) {
 				e = fmt.Errorf("не загрузились %d из %d программ: %s", len(f.Failed), f.Total, strings.Join(f.Failed[:min(5, len(f.Failed))], ", "))
-			} else if len(c.prev) > 0 && float64(len(f.Programs)) < r.settings.MinRatio*float64(len(c.prev)) && len(c.prev)-len(f.Programs) > r.settings.MinDrop {
+			} else if len(c.prev) > 0 &&
+				float64(len(f.Programs)) < r.settings.MinRatio*float64(len(c.prev)) &&
+				len(c.prev)-len(f.Programs) > r.settings.MinDrop {
 				e = fmt.Errorf("подозрительно мало программ: %d против %d", len(f.Programs), len(c.prev))
 			}
 		}
@@ -177,13 +181,13 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			c.current = f.Programs
 			seeding[name] = opt.Seed || len(c.prev) == 0
 			if !seeding[name] {
-				c.current = diff.CarryMissing(c.prev, c.current, r.settings.MissingRuns)
+				c.current = scope.CarryMissing(c.prev, c.current, r.settings.MissingRuns)
 			}
 			r.log.Info("platform collected", "platform", name, "programs", len(f.Programs), "failed", len(f.Failed))
 		}
 		collectedBy[name] = c
 	}
-	everything := []model.Program{}
+	everything := []scope.Program{}
 	for _, name := range r.names {
 		ps := sortedPrograms(all[name])
 		if c, ok := collectedBy[name]; ok {
@@ -195,10 +199,10 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			}
 		}
 	}
-	lk := linker.New(everything)
-	perCompany := []model.Change{}
+	lk := scope.LinkPrograms(everything)
+	perCompany := []scope.Change{}
 	mass := []string{}
-	snapshots := map[string][]model.Program{}
+	snapshots := map[string][]scope.Program{}
 	for _, name := range names {
 		c := collectedBy[name]
 		if c.err != nil {
@@ -215,7 +219,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			result.Seeded = append(result.Seeded, fmt.Sprintf("%s: %d программ (%d активных)", r.render.Title(name), len(c.current), active))
 			continue
 		}
-		changes := diff.Platform(c.prev, c.current)
+		changes := scope.ComparePlatform(c.prev, c.current)
 		result.Changes = append(result.Changes, changes...)
 		if float64(len(changes)) > max(float64(r.settings.MassMin), r.settings.MassRatio*float64(len(c.prev))) {
 			mass = append(mass, r.render.MassChange(name, changes))
@@ -225,7 +229,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 	}
 	result.Messages = append(r.render.Render(perCompany, lk), mass...)
 	if len(result.Seeded) > 0 {
-		result.Messages = append(result.Messages, render.Seeded(result.Seeded))
+		result.Messages = append(result.Messages, telegram.Seeded(result.Seeded))
 	}
 	if opt.DryRun {
 		for _, m := range result.Messages {
@@ -245,7 +249,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 		c := collectedBy[name]
 		if c.err != nil {
 			h.Fails++
-			h.LastError = render.Clip(c.err.Error(), 300)
+			h.LastError = telegram.Clip(c.err.Error(), 300)
 			if h.Fails >= r.settings.FailAlertAfter && !h.Alerted {
 				alerts = append(alerts, r.render.HealthAlert(name, h.Fails, c.err.Error()))
 				h.Alerted = true
@@ -254,7 +258,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			if h.Alerted {
 				alerts = append(alerts, r.render.HealthOK(name))
 			}
-			h = model.Health{}
+			h = scope.Health{}
 		}
 		health[name] = h
 	}
@@ -265,6 +269,7 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 	result.Unsent, err = Flush(ctx, store, n, r.log)
 	return result, err
 }
+
 func Flush(ctx context.Context, s *storage.Store, n Notifier, log *slog.Logger) (int, error) {
 	pending, err := s.Outbox(ctx)
 	if err != nil {

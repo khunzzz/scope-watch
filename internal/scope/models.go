@@ -1,5 +1,5 @@
-// Package model defines the platform-independent snapshots stored by ScopeWatch.
-package model
+// Package scope defines program snapshots and the operations used to compare them.
+package scope
 
 import "encoding/json"
 
@@ -26,6 +26,7 @@ type Program struct {
 }
 
 func (p Program) Key() string { return p.Platform + "/" + p.Slug }
+
 func (p Program) MaxReward() int {
 	n := 0
 	for _, r := range p.Rewards {
@@ -35,6 +36,7 @@ func (p Program) MaxReward() int {
 	}
 	return n
 }
+
 func (p Program) Clone() Program {
 	p.Assets = append([]string{}, p.Assets...)
 	p.OutOfScope = append([]string{}, p.OutOfScope...)
@@ -53,6 +55,7 @@ func (p Program) Clone() Program {
 	p.Meta = meta
 	return p
 }
+
 func (p Program) MetaNumber(key string) float64 {
 	switch v := p.Meta[key].(type) {
 	case float64:
@@ -98,7 +101,18 @@ type Change struct {
 }
 
 func (c Change) Empty() bool {
-	return c.Kind == "updated" && c.Activated == nil && c.RenamedFrom == "" && len(c.AssetsAdded)+len(c.AssetsRemoved)+len(c.BountyLost)+len(c.BountyGained)+len(c.OOSAdded)+len(c.OOSRemoved)+len(c.Rewards)+len(c.NewVersions) == 0 && c.TextDiff == ""
+	return c.Kind == "updated" &&
+		c.Activated == nil &&
+		c.RenamedFrom == "" &&
+		len(c.AssetsAdded) == 0 &&
+		len(c.AssetsRemoved) == 0 &&
+		len(c.BountyLost) == 0 &&
+		len(c.BountyGained) == 0 &&
+		len(c.OOSAdded) == 0 &&
+		len(c.OOSRemoved) == 0 &&
+		len(c.Rewards) == 0 &&
+		len(c.NewVersions) == 0 &&
+		c.TextDiff == ""
 }
 
 type Health struct {

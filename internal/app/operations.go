@@ -1,5 +1,4 @@
-// Package cli implements the command line without owning process exit or signals.
-package cli
+package app
 
 import (
 	"context"
@@ -17,18 +16,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/khunzzz/scope-watch/internal/config"
-	"github.com/khunzzz/scope-watch/internal/httpclient"
-	"github.com/khunzzz/scope-watch/internal/linker"
-	"github.com/khunzzz/scope-watch/internal/model"
-	"github.com/khunzzz/scope-watch/internal/runner"
+	"github.com/khunzzz/scope-watch/internal/scope"
 	"github.com/khunzzz/scope-watch/internal/storage"
 )
 
-func loop(ctx context.Context, s config.Settings, r *runner.Runner, n runner.Notifier, only []string, log *slog.Logger) error {
+func loop(ctx context.Context, s Settings, r *Runner, n Notifier, only []string, log *slog.Logger) error {
 	for {
 		started := time.Now()
-		res, err := r.Run(ctx, n, runner.Options{Platforms: only})
+		res, err := r.Run(ctx, n, Options{Platforms: only})
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -40,11 +35,12 @@ func loop(ctx context.Context, s config.Settings, r *runner.Runner, n runner.Not
 			}
 		}
 		delay := max(30*time.Second, s.Interval-time.Since(started)) + time.Duration(rand.Int64N(int64(30*time.Second)))
-		if err = httpclient.Wait(ctx, delay); err != nil {
+		if err = wait(ctx, delay); err != nil {
 			return err
 		}
 	}
 }
+
 func healthcheck() error {
 	path := os.Getenv("SCOPEWATCH_HEARTBEAT")
 	if path == "" {
@@ -67,7 +63,8 @@ func healthcheck() error {
 	}
 	return nil
 }
-func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command string, limit int, slug, output string, out io.Writer) (err error) {
+
+func inspect(ctx context.Context, s Settings, r *Runner, command string, limit int, slug, output string, out io.Writer) (err error) {
 	store, err := storage.Open(ctx, s.DataDir)
 	if err != nil {
 		return err
@@ -106,7 +103,14 @@ func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command s
 					details = append(details, "closed")
 				}
 			}
-			for key, label := range map[string]string{"assets_added": "новые ассеты", "assets_removed": "убраны ассеты", "bounty_lost": "без выплат", "bounty_gained": "с выплатами", "rewards": "выплаты", "new_versions": "версии"} {
+			for key, label := range map[string]string{
+				"assets_added":   "новые ассеты",
+				"assets_removed": "убраны ассеты",
+				"bounty_lost":    "без выплат",
+				"bounty_gained":  "с выплатами",
+				"rewards":        "выплаты",
+				"new_versions":   "версии",
+			} {
 				if xs, ok := row[key].([]any); ok && len(xs) > 0 {
 					details = append(details, fmt.Sprintf("%s: %d", label, len(xs)))
 				}
@@ -115,13 +119,17 @@ func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command s
 				details = append(details, "текст")
 			}
 			slices.Sort(details)
-			if _, err = fmt.Fprintf(out, "%s  %-12s %-28v %s\n", time.Unix(int64(ts), 0).Format("2006-01-02 15:04"), title, row["name"], strings.Join(details, "; ")); err != nil {
+			_, err = fmt.Fprintf(out, "%s  %-12s %-28v %s\n",
+				time.Unix(int64(ts), 0).Format("2006-01-02 15:04"),
+				title, row["name"], strings.Join(details, "; "),
+			)
+			if err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	programs := []model.Program{}
+	programs := []scope.Program{}
 	for _, name := range r.Names() {
 		ps, e := store.Load(ctx, name)
 		if e != nil {
@@ -133,7 +141,7 @@ func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command s
 			}
 		}
 	}
-	lk := linker.New(programs)
+	lk := scope.LinkPrograms(programs)
 	if command == "links" {
 		sort.SliceStable(lk.Links, func(i, j int) bool { return lk.Links[i].Score > lk.Links[j].Score })
 		for _, ln := range lk.Links {
@@ -144,7 +152,7 @@ func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command s
 		_, err = fmt.Fprintf(out, "\nсклеено пар: %d\n", len(lk.Links))
 		return err
 	}
-	groups := map[string][]model.Program{}
+	groups := map[string][]scope.Program{}
 	for _, p := range programs {
 		k := lk.GroupKey(p)
 		groups[k] = append(groups[k], p)
@@ -199,6 +207,7 @@ func inspect(ctx context.Context, s config.Settings, r *runner.Runner, command s
 	_, err = fmt.Fprintf(out, "%d компаний → %s\n", len(companies), output)
 	return err
 }
+
 func atomicWrite(path string, data []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".scope-watch-*.json")
 	if err != nil {
@@ -219,7 +228,7 @@ func atomicWrite(path string, data []byte) error {
 	return os.Rename(f.Name(), path)
 }
 
-func showStatus(ctx context.Context, s config.Settings, names []string, out io.Writer, asJSON bool) (err error) {
+func showStatus(ctx context.Context, s Settings, names []string, out io.Writer, asJSON bool) (err error) {
 	store, err := storage.Open(ctx, s.DataDir)
 	if err != nil {
 		return err
@@ -248,7 +257,11 @@ func showStatus(ctx context.Context, s config.Settings, names []string, out io.W
 		if p.LastSuccess != nil {
 			fresh = p.LastSuccess.Format(time.RFC3339)
 		}
-		if _, err = fmt.Fprintf(out, "%s: программ %d, активных %d, сбоев подряд %d\n  Последний успешный сбор: %s\n", p.Platform, p.Programs, p.Active, p.Failures, fresh); err != nil {
+		_, err = fmt.Fprintf(out,
+			"%s: программ %d, активных %d, сбоев подряд %d\n  Последний успешный сбор: %s\n",
+			p.Platform, p.Programs, p.Active, p.Failures, fresh,
+		)
+		if err != nil {
 			return err
 		}
 		if p.LastError != "" {

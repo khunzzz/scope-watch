@@ -1,4 +1,5 @@
-package cli
+// Package app wires the CLI, collection pipeline and process lifecycle.
+package app
 
 import (
 	"context"
@@ -6,16 +7,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/khunzzz/scope-watch/internal/adapters"
-	"github.com/khunzzz/scope-watch/internal/config"
-	"github.com/khunzzz/scope-watch/internal/httpclient"
-	"github.com/khunzzz/scope-watch/internal/notify"
-	"github.com/khunzzz/scope-watch/internal/runner"
+	"github.com/khunzzz/scope-watch/internal/notify/telegram"
 )
 
 type exitError struct {
@@ -24,13 +22,15 @@ type exitError struct {
 }
 
 func (e *exitError) Error() string { return e.err.Error() }
+
 func (e *exitError) Unwrap() error { return e.err }
-func invalid(err error) error      { return &exitError{code: 2, err: err} }
+
+func invalid(err error) error { return &exitError{code: 2, err: err} }
 
 type application struct {
-	settings    config.Settings
-	client      *httpclient.Client
-	runner      *runner.Runner
+	settings    Settings
+	client      *http.Client
+	runner      *Runner
 	log         *slog.Logger
 	verbose     bool
 	out, stderr io.Writer
@@ -43,12 +43,12 @@ func Execute(ctx context.Context, args []string, out, stderr io.Writer) int {
 	root.SetArgs(args)
 	err := root.ExecuteContext(ctx)
 	if app.client != nil {
-		app.client.HTTP.CloseIdleConnections()
+		app.client.CloseIdleConnections()
 	}
 	if err == nil || errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		return 0
 	}
-	fmt.Fprintln(stderr, notify.Redact(err.Error(), app.settings.Token))
+	fmt.Fprintln(stderr, telegram.Redact(err.Error(), app.settings.Token))
 	var exit *exitError
 	if errors.As(err, &exit) {
 		return exit.code
@@ -59,28 +59,42 @@ func Execute(ctx context.Context, args []string, out, stderr io.Writer) int {
 
 func newCommand(app *application) *cobra.Command {
 	root := &cobra.Command{
-		Use: "scope-watch", Short: "Мониторинг публичных bug bounty программ",
-		SilenceUsage: true, SilenceErrors: true,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
+		Use:           "scope-watch",
+		Short:         "Мониторинг публичных bug bounty программ",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Args:          cobra.NoArgs,
+		RunE:          func(cmd *cobra.Command, args []string) error { return cmd.Help() },
 	}
 	root.SetOut(app.out)
 	root.SetErr(app.stderr)
 	root.PersistentFlags().BoolVarP(&app.verbose, "verbose", "v", false, "подробные логи")
-	root.AddCommand(newRunCommand(app), newLoopCommand(app), newSeedCommand(app),
-		newStatusCommand(app), newHistoryCommand(app), newLinksCommand(app), newExportCommand(app), newNotifyCommand(app))
-	root.AddCommand(&cobra.Command{Use: "healthcheck", Short: "Проверить heartbeat контейнера", Args: cobra.NoArgs,
+	root.AddCommand(
+		newRunCommand(app),
+		newLoopCommand(app),
+		newSeedCommand(app),
+		newStatusCommand(app),
+		newHistoryCommand(app),
+		newLinksCommand(app),
+		newExportCommand(app),
+		newNotifyCommand(app),
+	)
+	root.AddCommand(&cobra.Command{
+		Use:   "healthcheck",
+		Short: "Проверить heartbeat контейнера",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := healthcheck(); err != nil {
 				return &exitError{code: 1, err: err}
 			}
 			return nil
-		}})
+		},
+	})
 	return root
 }
 
 func (app *application) prepare() error {
-	settings, err := config.FromEnv()
+	settings, err := FromEnv()
 	if err != nil {
 		return invalid(err)
 	}
@@ -89,9 +103,10 @@ func (app *application) prepare() error {
 	if app.verbose {
 		level = slog.LevelDebug
 	}
-	app.log = slog.New(slog.NewTextHandler(notify.RedactingWriter{Writer: app.stderr, Token: settings.Token}, &slog.HandlerOptions{Level: level}))
-	app.client = httpclient.New(settings.RequestDelay)
-	app.runner, err = runner.New(settings, adapters.New(app.client), app.log)
+	writer := telegram.RedactingWriter{Writer: app.stderr, Token: settings.Token}
+	app.log = slog.New(slog.NewTextHandler(writer, &slog.HandlerOptions{Level: level}))
+	app.client = newPlatformHTTPClient(settings.RequestDelay)
+	app.runner, err = newRunner(settings, newAdapters(app.client), app.log)
 	if err != nil {
 		return invalid(err)
 	}
@@ -99,7 +114,10 @@ func (app *application) prepare() error {
 }
 
 func (app *application) command(use, short string, run func(*cobra.Command) error) *cobra.Command {
-	return &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs,
+	return &cobra.Command{
+		Use:     use,
+		Short:   short,
+		Args:    cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, args []string) error { return app.prepare() },
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := run(cmd)
@@ -111,8 +129,10 @@ func (app *application) command(use, short string, run func(*cobra.Command) erro
 				return err
 			}
 			return &exitError{code: 1, err: err}
-		}}
+		},
+	}
 }
+
 func (app *application) validatePlatforms(names []string) error {
 	for _, name := range names {
 		if !slices.Contains(app.runner.Names(), name) {
@@ -121,9 +141,10 @@ func (app *application) validatePlatforms(names []string) error {
 	}
 	return nil
 }
-func (app *application) notifier(dry bool) runner.Notifier {
+
+func (app *application) notifier(dry bool) Notifier {
 	if !dry && app.settings.HasTelegram() {
-		return notify.NewTelegram(app.settings.Token, app.settings.ChatID)
+		return telegram.NewClient(app.settings.Token, app.settings.ChatID)
 	}
-	return notify.Stdout{Writer: app.out}
+	return telegram.Stdout{Writer: app.out}
 }

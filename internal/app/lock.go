@@ -1,5 +1,4 @@
-// Package runlock excludes competing writers, including across processes.
-package runlock
+package app
 
 import (
 	"errors"
@@ -10,10 +9,10 @@ import (
 	"github.com/gofrs/flock"
 )
 
-var ErrBusy = errors.New("another scope-watch run is already using this data directory")
+var errRunBusy = errors.New("another scope-watch run is already using this data directory")
 
-// Acquire returns an OS-backed lock. The lock file is intentionally never unlinked.
-func Acquire(dir string) (*flock.Flock, error) {
+// acquireRunLock returns an OS-backed lock. The lock file is intentionally never unlinked.
+func acquireRunLock(dir string) (*flock.Flock, error) {
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
 	}
@@ -25,7 +24,7 @@ func Acquire(dir string) (*flock.Flock, error) {
 	}
 	if !ok {
 		lock.Close()
-		return nil, ErrBusy
+		return nil, errRunBusy
 	}
 	return lock, nil
 }

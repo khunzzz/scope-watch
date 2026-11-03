@@ -1,5 +1,4 @@
-// Package assets extracts scope from prose. Text changes are tracked separately.
-package assets
+package scope
 
 import (
 	_ "embed"
@@ -12,8 +11,8 @@ import (
 	"unicode/utf8"
 )
 
-// Version changes when extraction semantics change, preventing false asset alerts.
-const Version = 1
+// ExtractorVersion changes when extraction semantics change, preventing false asset alerts.
+const ExtractorVersion = 1
 
 //go:embed tlds.txt
 var tldText string
@@ -44,6 +43,7 @@ func set(items []string) map[string]bool {
 	}
 	return m
 }
+
 func sorted(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for s := range m {
@@ -52,7 +52,9 @@ func sorted(m map[string]bool) []string {
 	slices.Sort(out)
 	return out
 }
+
 func word(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' }
+
 func before(s string, i int) rune {
 	if i == 0 {
 		return 0
@@ -60,6 +62,7 @@ func before(s string, i int) rune {
 	r, _ := utf8.DecodeLastRuneInString(s[:i])
 	return r
 }
+
 func after(s string, i int) rune {
 	if i == len(s) {
 		return 0
@@ -67,6 +70,7 @@ func after(s string, i int) rune {
 	r, _ := utf8.DecodeRuneInString(s[i:])
 	return r
 }
+
 func replaceBounded(s string, re *regexp.Regexp, left, right func(rune) bool, f func(string) string) string {
 	var b strings.Builder
 	pos := 0
@@ -81,6 +85,7 @@ func replaceBounded(s string, re *regexp.Regexp, left, right func(rune) bool, f 
 	b.WriteString(s[pos:])
 	return b.String()
 }
+
 func normDomain(d string, exclude []string) string {
 	d = strings.Trim(strings.ToLower(d), ".")
 	if strings.HasPrefix(d, "*") {
@@ -104,6 +109,7 @@ func normDomain(d string, exclude []string) string {
 	}
 	return d
 }
+
 func appURL(raw string) string {
 	u, e := url.Parse(raw)
 	if e != nil {
@@ -136,7 +142,12 @@ func appURL(raw string) string {
 
 var reserved = func() []netip.Prefix {
 	var p []netip.Prefix
-	for _, s := range strings.Fields("0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4") {
+	for _, s := range []string{
+		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+		"169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+		"192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+		"224.0.0.0/4", "240.0.0.0/4",
+	} {
 		p = append(p, netip.MustParsePrefix(s))
 	}
 	return p
@@ -161,10 +172,15 @@ func globalIP(raw string) bool {
 	}
 	return true
 }
-func Extract(md string, exclude []string) []string {
+
+func ExtractAssets(md string, exclude []string) []string {
 	found := map[string]bool{}
 	text := mdLinkRE.ReplaceAllString(md, "${1} ${2}")
-	text = replaceBounded(text, storeRE, func(r rune) bool { return word(r) || r == '/' || r == '.' }, func(r rune) bool { return false }, func(s string) string { return "https://" + s })
+	text = replaceBounded(text, storeRE,
+		func(r rune) bool { return word(r) || r == '/' || r == '.' },
+		func(r rune) bool { return false },
+		func(s string) string { return "https://" + s },
+	)
 	var b strings.Builder
 	for i := 0; i < len(text); {
 		if strings.HasPrefix(text[i:], "**") && (i == 0 || text[i-1] != '\\') {
@@ -202,30 +218,43 @@ func Extract(md string, exclude []string) []string {
 		}
 		return strings.Join(parts, " ")
 	})
-	text = replaceBounded(text, pkgRE, func(r rune) bool { return word(r) || strings.ContainsRune(".@/-", r) && r != 0 }, func(r rune) bool { return word(r) || r == '-' }, func(s string) string {
-		tok := strings.ToLower(s)
-		parts := strings.Split(tok, ".")
-		last := parts[len(parts)-1]
-		if !tlds[last] || pkgTails[last] || strings.Contains(tok, "_") {
-			found["android:"+tok] = true
-			return " "
-		}
-		return s
-	})
-	replaceBounded(text, ipRE, func(r rune) bool { return unicode.IsDigit(r) || r == '.' }, func(r rune) bool { return unicode.IsDigit(r) || r == '.' }, func(s string) string {
-		if globalIP(s) {
-			found[s] = true
-		}
-		return s
-	})
-	replaceBounded(text, domainRE, func(r rune) bool { return word(r) || r != 0 && strings.ContainsRune("@.-", r) }, func(r rune) bool { return word(r) || r == '-' }, func(s string) string {
-		if d := normDomain(s, exclude); d != "" {
-			found[d] = true
-		}
-		return s
-	})
+	text = replaceBounded(text, pkgRE,
+		func(r rune) bool { return word(r) || strings.ContainsRune(".@/-", r) && r != 0 },
+		func(r rune) bool { return word(r) || r == '-' },
+		func(s string) string {
+			tok := strings.ToLower(s)
+			parts := strings.Split(tok, ".")
+			last := parts[len(parts)-1]
+			if !tlds[last] || pkgTails[last] || strings.Contains(tok, "_") {
+				found["android:"+tok] = true
+				return " "
+			}
+			return s
+		},
+	)
+	replaceBounded(text, ipRE,
+		func(r rune) bool { return unicode.IsDigit(r) || r == '.' },
+		func(r rune) bool { return unicode.IsDigit(r) || r == '.' },
+		func(s string) string {
+			if globalIP(s) {
+				found[s] = true
+			}
+			return s
+		},
+	)
+	replaceBounded(text, domainRE,
+		func(r rune) bool { return word(r) || r != 0 && strings.ContainsRune("@.-", r) },
+		func(r rune) bool { return word(r) || r == '-' },
+		func(s string) string {
+			if d := normDomain(s, exclude); d != "" {
+				found[d] = true
+			}
+			return s
+		},
+	)
 	return sorted(found)
 }
+
 func SplitScope(md string, exclude []string) ([]string, []string) {
 	type section struct {
 		level   int
@@ -263,8 +292,8 @@ func SplitScope(md string, exclude []string) ([]string, []string) {
 			in = append(in, line)
 		}
 	}
-	ins := Extract(strings.Join(in, "\n"), exclude)
-	outs := Extract(strings.Join(out, "\n"), exclude)
+	ins := ExtractAssets(strings.Join(in, "\n"), exclude)
+	outs := ExtractAssets(strings.Join(out, "\n"), exclude)
 	inside := set(ins)
 	filtered := []string{}
 	for _, s := range outs {
@@ -274,6 +303,7 @@ func SplitScope(md string, exclude []string) ([]string, []string) {
 	}
 	return ins, filtered
 }
+
 func Registrable(asset string) string {
 	if strings.ContainsAny(asset, ": ") {
 		return ""
@@ -294,6 +324,7 @@ func Registrable(asset string) string {
 	}
 	return strings.Join(labels[len(labels)-n:], ".")
 }
+
 func LinkTokens(items []string) map[string]bool {
 	out := map[string]bool{}
 	for _, a := range items {
@@ -306,6 +337,7 @@ func LinkTokens(items []string) map[string]bool {
 	}
 	return out
 }
+
 func Covered(asset string, pool map[string]bool) bool {
 	if pool[asset] {
 		return true

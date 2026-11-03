@@ -1,6 +1,6 @@
 package standoff
 
-// Private wire types describe this platform's API, independently of model.Program.
+// Private wire types describe this platform's API, independently of scope.Program.
 type programData struct {
 	Slug         string  `json:"slug"`
 	Name         string  `json:"name"`
@@ -12,6 +12,7 @@ type programData struct {
 	Finished     bool    `json:"finished"`
 	ArchivedAt   *string `json:"archivedAt"`
 }
+
 type rewardData struct {
 	MinReward int `json:"minReward"`
 	MaxReward int `json:"maxReward"`

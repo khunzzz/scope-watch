@@ -1,4 +1,4 @@
-// Package storage persists snapshots, history and the transactional notification outbox.
+// Package storage persists snapshots, history and the transactional outbox.
 package storage
 
 import (
@@ -13,9 +13,9 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-
-	"github.com/khunzzz/scope-watch/internal/model"
 	_ "modernc.org/sqlite"
+
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 //go:embed schema.sql
@@ -32,7 +32,10 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	fail := func(e error) (*Store, error) { db.Close(); return nil, e }
+	fail := func(err error) (*Store, error) {
+		db.Close()
+		return nil, err
+	}
 	if _, err = db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
 		return fail(err)
 	}
@@ -41,20 +44,27 @@ func Open(ctx context.Context, dir string) (*Store, error) {
 	}
 	return &Store{db: db}, nil
 }
+
 func (s *Store) Close() error { return s.db.Close() }
-func (s *Store) Load(ctx context.Context, platform string) (map[string]model.Program, error) {
-	rows, err := sq.Select("data").From("programs").Where(sq.Eq{"platform": platform}).OrderBy("slug").RunWith(s.db).QueryContext(ctx)
+
+func (s *Store) Load(ctx context.Context, platform string) (map[string]scope.Program, error) {
+	rows, err := sq.Select("data").
+		From("programs").
+		Where(sq.Eq{"platform": platform}).
+		OrderBy("slug").
+		RunWith(s.db).
+		QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]model.Program{}
+	out := map[string]scope.Program{}
 	for rows.Next() {
 		var raw []byte
 		if err = rows.Scan(&raw); err != nil {
 			return nil, err
 		}
-		var p model.Program
+		var p scope.Program
 		if err = json.Unmarshal(raw, &p); err != nil {
 			return nil, fmt.Errorf("decode %s snapshot: %w", platform, err)
 		}
@@ -65,16 +75,20 @@ func (s *Store) Load(ctx context.Context, platform string) (map[string]model.Pro
 	}
 	return out, rows.Err()
 }
-func (s *Store) Health(ctx context.Context) (map[string]model.Health, error) {
-	rows, err := sq.Select("platform", "fails", "alerted", "last_error").From("health").RunWith(s.db).QueryContext(ctx)
+
+func (s *Store) Health(ctx context.Context) (map[string]scope.Health, error) {
+	rows, err := sq.Select("platform", "fails", "alerted", "last_error").
+		From("health").
+		RunWith(s.db).
+		QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]model.Health{}
+	out := map[string]scope.Health{}
 	for rows.Next() {
 		var p string
-		var h model.Health
+		var h scope.Health
 		if err = rows.Scan(&p, &h.Fails, &h.Alerted, &h.LastError); err != nil {
 			return nil, err
 		}
@@ -82,7 +96,15 @@ func (s *Store) Health(ctx context.Context) (map[string]model.Health, error) {
 	}
 	return out, rows.Err()
 }
-func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Program, health map[string]model.Health, changes []model.Change, messages []string, attempted ...string) error {
+
+func (s *Store) CommitRun(
+	ctx context.Context,
+	snapshots map[string][]scope.Program,
+	health map[string]scope.Health,
+	changes []scope.Change,
+	messages []string,
+	attempted ...string,
+) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -94,7 +116,11 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 	}
 	slices.Sort(keys)
 	for _, name := range keys {
-		if _, err = sq.Delete("programs").Where(sq.Eq{"platform": name}).RunWith(tx).ExecContext(ctx); err != nil {
+		_, err = sq.Delete("programs").
+			Where(sq.Eq{"platform": name}).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
 			return err
 		}
 		for _, p := range snapshots[name] {
@@ -105,13 +131,24 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 			if e != nil {
 				return e
 			}
-			if _, err = sq.Insert("programs").Columns("platform", "slug", "data").Values(name, p.Slug, string(raw)).RunWith(tx).ExecContext(ctx); err != nil {
+			_, err = sq.Insert("programs").
+				Columns("platform", "slug", "data").
+				Values(name, p.Slug, string(raw)).
+				RunWith(tx).
+				ExecContext(ctx)
+			if err != nil {
 				return err
 			}
 		}
 	}
 	for name, h := range health {
-		if _, err = sq.Insert("health").Options("OR REPLACE").Columns("platform", "fails", "alerted", "last_error").Values(name, h.Fails, h.Alerted, h.LastError).RunWith(tx).ExecContext(ctx); err != nil {
+		_, err = sq.Insert("health").
+			Options("OR REPLACE").
+			Columns("platform", "fails", "alerted", "last_error").
+			Values(name, h.Fails, h.Alerted, h.LastError).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
 			return err
 		}
 	}
@@ -121,13 +158,21 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 		if _, ok := snapshots[name]; ok {
 			success = now
 		}
-		if _, err = sq.Insert("platform_status").Columns("platform", "last_attempt", "last_success").Values(name, now, success).Suffix("ON CONFLICT(platform) DO UPDATE SET last_attempt=excluded.last_attempt, last_success=COALESCE(excluded.last_success,platform_status.last_success)").RunWith(tx).ExecContext(ctx); err != nil {
+		_, err = sq.Insert("platform_status").
+			Columns("platform", "last_attempt", "last_success").
+			Values(name, now, success).
+			Suffix(`ON CONFLICT(platform) DO UPDATE SET
+				last_attempt = excluded.last_attempt,
+				last_success = COALESCE(excluded.last_success, platform_status.last_success)`).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
 			return err
 		}
 	}
 	for _, c := range changes {
 		payload := struct {
-			model.Change
+			scope.Change
 			Name string `json:"name"`
 			URL  string `json:"url"`
 		}{c, c.Program.Name, c.Program.URL}
@@ -135,12 +180,22 @@ func (s *Store) CommitRun(ctx context.Context, snapshots map[string][]model.Prog
 		if e != nil {
 			return e
 		}
-		if _, err = sq.Insert("changes").Columns("ts", "platform", "slug", "kind", "data").Values(now, c.Program.Platform, c.Program.Slug, c.Kind, string(raw)).RunWith(tx).ExecContext(ctx); err != nil {
+		_, err = sq.Insert("changes").
+			Columns("ts", "platform", "slug", "kind", "data").
+			Values(now, c.Program.Platform, c.Program.Slug, c.Kind, string(raw)).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
 			return err
 		}
 	}
 	for _, m := range messages {
-		if _, err = sq.Insert("outbox").Columns("ts", "html").Values(now, m).RunWith(tx).ExecContext(ctx); err != nil {
+		_, err = sq.Insert("outbox").
+			Columns("ts", "html").
+			Values(now, m).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
 			return err
 		}
 	}
@@ -153,7 +208,11 @@ type Message struct {
 }
 
 func (s *Store) Outbox(ctx context.Context) ([]Message, error) {
-	rows, err := sq.Select("id", "html").From("outbox").OrderBy("id").RunWith(s.db).QueryContext(ctx)
+	rows, err := sq.Select("id", "html").
+		From("outbox").
+		OrderBy("id").
+		RunWith(s.db).
+		QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -168,15 +227,23 @@ func (s *Store) Outbox(ctx context.Context) ([]Message, error) {
 	}
 	return out, rows.Err()
 }
+
 func (s *Store) OutboxDone(ctx context.Context, id int64) error {
-	_, err := sq.Delete("outbox").Where(sq.Eq{"id": id}).RunWith(s.db).ExecContext(ctx)
+	_, err := sq.Delete("outbox").
+		Where(sq.Eq{"id": id}).
+		RunWith(s.db).
+		ExecContext(ctx)
 	return err
 }
+
 func (s *Store) History(ctx context.Context, limit int, slug string) ([]map[string]any, error) {
 	if limit < 1 {
 		return nil, fmt.Errorf("history limit must be positive")
 	}
-	query := sq.Select("ts", "platform", "slug", "kind", "data").From("changes").OrderBy("id DESC").Limit(uint64(limit))
+	query := sq.Select("ts", "platform", "slug", "kind", "data").
+		From("changes").
+		OrderBy("id DESC").
+		Limit(uint64(limit))
 	if slug != "" {
 		query = query.Where(sq.Eq{"slug": slug})
 	}
@@ -235,7 +302,12 @@ func (s *Store) Status(ctx context.Context, names []string) ([]PlatformStatus, e
 			}
 		}
 		var attempt, success sql.NullFloat64
-		err = sq.Select("last_attempt", "last_success").From("platform_status").Where(sq.Eq{"platform": name}).RunWith(s.db).QueryRowContext(ctx).Scan(&attempt, &success)
+		err = sq.Select("last_attempt", "last_success").
+			From("platform_status").
+			Where(sq.Eq{"platform": name}).
+			RunWith(s.db).
+			QueryRowContext(ctx).
+			Scan(&attempt, &success)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, err
 		}

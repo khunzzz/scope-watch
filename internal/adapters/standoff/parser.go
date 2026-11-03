@@ -5,17 +5,16 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/khunzzz/scope-watch/internal/assets"
-	"github.com/khunzzz/scope-watch/internal/model"
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 const Name = "standoff"
 const Title = "Standoff 365"
 const baseURL = "https://bugbounty.standoff365.com"
 
-func parse(raw programData) (model.Program, error) {
+func parse(raw programData) (scope.Program, error) {
 	if raw.Slug == "" {
-		return model.Program{}, fmt.Errorf("standoff program has no slug")
+		return scope.Program{}, fmt.Errorf("standoff program has no slug")
 	}
 	parts := []string{}
 	for _, s := range []string{raw.Description, raw.SpecialRules} {
@@ -28,7 +27,7 @@ func parse(raw programData) (model.Program, error) {
 	if raw.Slug == "standoff-365" {
 		exclude = nil
 	}
-	inside, outside := assets.SplitScope(md, exclude)
+	inside, outside := scope.SplitScope(md, exclude)
 	name := raw.Name
 	if name == "" {
 		name = raw.Slug
@@ -37,7 +36,7 @@ func parse(raw programData) (model.Program, error) {
 	if raw.Finished {
 		status = "finished"
 	}
-	return model.Program{
+	return scope.Program{
 		Platform:     Name,
 		Slug:         raw.Slug,
 		Name:         name,
@@ -49,14 +48,14 @@ func parse(raw programData) (model.Program, error) {
 		AssetsSource: "text",
 		ScopeMD:      md,
 		UpdatedAt:    raw.UpdatedAt,
-		Meta:         map[string]any{"extractor": assets.Version},
+		Meta:         map[string]any{"extractor": scope.ExtractorVersion},
 		Versions:     []string{},
 	}, nil
 }
 
 func rewards(raw map[string]rewardData) map[string][]int {
 	out := map[string][]int{}
-	for _, s := range model.Severities {
+	for _, s := range scope.Severities {
 		r := raw[s]
 		if r.MaxReward != 0 {
 			out[s] = []int{r.MinReward, r.MaxReward}

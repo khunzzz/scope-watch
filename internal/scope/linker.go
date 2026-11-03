@@ -1,5 +1,4 @@
-// Package linker matches companies across platforms by weighted shared assets.
-package linker
+package scope
 
 import (
 	"math"
@@ -7,9 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/khunzzz/scope-watch/internal/assets"
-	"github.com/khunzzz/scope-watch/internal/model"
 )
 
 var slugParts = regexp.MustCompile(`[^a-z0-9]+`)
@@ -34,23 +30,24 @@ type Link struct {
 	Score  float64
 	Shared []string
 }
+
 type Linker struct {
-	ByKey  map[string]model.Program
+	ByKey  map[string]Program
 	Links  []Link
 	peers  map[string][]string
 	tokens map[string]map[string]bool
 	weight map[string]float64
 }
 
-func New(programs []model.Program) *Linker {
-	l := &Linker{ByKey: map[string]model.Program{}, peers: map[string][]string{}, tokens: map[string]map[string]bool{}, weight: map[string]float64{}}
+func LinkPrograms(programs []Program) *Linker {
+	l := &Linker{ByKey: map[string]Program{}, peers: map[string][]string{}, tokens: map[string]map[string]bool{}, weight: map[string]float64{}}
 	df := map[string]int{}
 	platforms := []string{}
-	programs = append([]model.Program{}, programs...)
+	programs = append([]Program{}, programs...)
 	sort.SliceStable(programs, func(i, j int) bool { return programs[i].Key() < programs[j].Key() })
 	for _, p := range programs {
 		l.ByKey[p.Key()] = p
-		l.tokens[p.Key()] = assets.LinkTokens(p.Assets)
+		l.tokens[p.Key()] = LinkTokens(p.Assets)
 		platforms = append(platforms, p.Platform)
 		for t := range l.tokens[p.Key()] {
 			df[t]++
@@ -63,7 +60,7 @@ func New(programs []model.Program) *Linker {
 	platforms = slices.Compact(platforms)
 	for i, pa := range platforms {
 		for _, pb := range platforms[i+1:] {
-			a, b := []model.Program{}, []model.Program{}
+			a, b := []Program{}, []Program{}
 			for _, p := range programs {
 				if p.Platform == pa {
 					a = append(a, p)
@@ -108,7 +105,8 @@ func New(programs []model.Program) *Linker {
 	}
 	return l
 }
-func (l *Linker) Score(a, b model.Program) (float64, []string) {
+
+func (l *Linker) Score(a, b Program) (float64, []string) {
 	shared := []string{}
 	for t := range l.tokens[a.Key()] {
 		if l.tokens[b.Key()][t] {
@@ -130,14 +128,16 @@ func (l *Linker) Score(a, b model.Program) (float64, []string) {
 	}
 	return score, shared
 }
-func (l *Linker) Peers(p model.Program) []model.Program {
-	out := []model.Program{}
+
+func (l *Linker) Peers(p Program) []Program {
+	out := []Program{}
 	for _, key := range l.peers[p.Key()] {
 		out = append(out, l.ByKey[key])
 	}
 	return out
 }
-func (l *Linker) GroupKey(p model.Program) string {
+
+func (l *Linker) GroupKey(p Program) string {
 	key := p.Key()
 	for _, s := range l.peers[key] {
 		if s < key {

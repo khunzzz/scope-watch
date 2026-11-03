@@ -1,39 +1,43 @@
-// Package standoff adapts public Standoff 365 Next.js pages to scope snapshots.
+// Package standoff adapts public Standoff 365 pages to program snapshots.
 package standoff
 
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
-	"github.com/khunzzz/scope-watch/internal/model"
+	"github.com/khunzzz/scope-watch/internal/scope"
 )
 
 const rewardTTL = 6 * time.Hour
 
 type Adapter struct {
-	client pageClient
+	client *http.Client
 	base   string
 	now    func() time.Time
 }
 
-func New(client pageClient) *Adapter { return &Adapter{client: client, base: baseURL, now: time.Now} }
-func (*Adapter) Name() string        { return Name }
-func (*Adapter) Title() string       { return Title }
-func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (model.Fetched, error) {
+func New(client *http.Client) *Adapter { return &Adapter{client: client, base: baseURL, now: time.Now} }
+
+func (*Adapter) Name() string { return Name }
+
+func (*Adapter) Title() string { return Title }
+
+func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (scope.Fetched, error) {
 	items, err := a.list(ctx)
 	if err != nil {
-		return model.Fetched{}, err
+		return scope.Fetched{}, err
 	}
-	out := model.Fetched{Total: len(items), Programs: []model.Program{}, Failed: []string{}}
+	out := scope.Fetched{Total: len(items), Programs: []scope.Program{}, Failed: []string{}}
 	now := float64(a.now().UnixNano()) / 1e9
 	for _, raw := range items {
 		if err := ctx.Err(); err != nil {
-			return model.Fetched{}, err
+			return scope.Fetched{}, err
 		}
 		p, err := parse(raw)
 		if err != nil {
-			return model.Fetched{}, err
+			return scope.Fetched{}, err
 		}
 		old, exists := prev[p.Slug]
 		stale := !exists || old.Rewards == nil || old.UpdatedAt != p.UpdatedAt || now-old.MetaNumber("rewards_at") > rewardTTL.Seconds()
@@ -46,7 +50,7 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]model.Program) (mod
 				loaded = true
 			} else {
 				if ctx.Err() != nil {
-					return model.Fetched{}, ctx.Err()
+					return scope.Fetched{}, ctx.Err()
 				}
 				out.Failed = append(out.Failed, p.Slug)
 			}
