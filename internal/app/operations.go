@@ -29,7 +29,9 @@ func loop(ctx context.Context, s Settings, r *Runner, n Notifier, only []string,
 		}
 		if err != nil {
 			log.Error("run failed", "error", err)
-		} else if s.Heartbeat != "" && res.Unsent == 0 {
+		} else if len(res.FailedPlatforms) > 0 || res.Unsent > 0 {
+			log.Error("run incomplete", "failed_platforms", len(res.FailedPlatforms), "unsent", res.Unsent)
+		} else if s.Heartbeat != "" {
 			if err = os.WriteFile(s.Heartbeat, nil, 0600); err != nil {
 				log.Error("heartbeat failed", "error", err)
 			}

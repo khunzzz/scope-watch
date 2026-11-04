@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ed25519"
@@ -419,6 +420,18 @@ func TestServiceE2E(t *testing.T) {
 	if s := h.status(); s.Pending != 1 {
 		t.Fatal("queued event duplicated", s)
 	}
+	for _, key := range []string{"TG_BOT_TOKEN", "TG_CHAT_ID"} {
+		original := testToken
+		if key == "TG_CHAT_ID" {
+			original = "1"
+		}
+		h.setenv(key, "")
+		h.run(2, "seed")
+		if s := h.status(); s.Pending != 1 || s.Platforms[0].Programs != 2 {
+			t.Fatal("seed without Telegram changed queue or snapshot", s)
+		}
+		h.setenv(key, original)
+	}
 	fixture.mu.Lock()
 	fixture.telegramDown = false
 	fixture.mu.Unlock()
@@ -510,4 +523,40 @@ func TestServiceE2E(t *testing.T) {
 	if s := h.status(); s.Pending != 0 || s.Platforms[0].Programs != 1 {
 		t.Fatal("cancelled run changed snapshot", s)
 	}
+}
+
+func TestLoopHeartbeatE2E(t *testing.T) {
+	h := newHarness(t)
+	h.fixture.mu.Lock()
+	h.fixture.tasksDown = true
+	h.fixture.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := h.command(ctx, "loop", "--only", "bizone")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		if err := cmd.Wait(); err != nil {
+			t.Error(err)
+		}
+	}()
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "run incomplete") {
+			if _, err := os.Stat(filepath.Join(h.dir, "heartbeat")); !os.IsNotExist(err) {
+				t.Fatalf("failed collection refreshed heartbeat: %v", err)
+			}
+			if s := h.status(); s.Platforms[1].Failures != 1 || s.Pending != 0 {
+				t.Fatal("failed run did not persist health and deliver alert", s)
+			}
+			return
+		}
+	}
+	t.Fatalf("loop did not report incomplete run: %v", scanner.Err())
 }

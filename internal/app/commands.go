@@ -53,6 +53,9 @@ func newSeedCommand(app *application) *cobra.Command {
 		if err := app.validatePlatforms(only); err != nil {
 			return err
 		}
+		if !app.settings.HasTelegram() {
+			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_ID; для проверки — run --dry-run"))
+		}
 		result, err := app.runner.Run(cmd.Context(), app.notifier(false), Options{Platforms: only, Seed: true})
 		if err != nil {
 			return err
