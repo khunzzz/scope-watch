@@ -16,7 +16,7 @@ func newRunCommand(app *application) *cobra.Command {
 			return err
 		}
 		if !dry && !app.settings.HasTelegram() {
-			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_ID; для проверки — --dry-run"))
+			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_IDS; для проверки — --dry-run"))
 		}
 		result, err := app.runner.Run(cmd.Context(), app.notifier(dry), Options{Platforms: only, DryRun: dry})
 		if err != nil {
@@ -39,7 +39,7 @@ func newLoopCommand(app *application) *cobra.Command {
 			return err
 		}
 		if !app.settings.HasTelegram() {
-			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_ID"))
+			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_IDS"))
 		}
 		return loop(cmd.Context(), app.settings, app.runner, app.notifier(false), only, app.log)
 	})
@@ -54,7 +54,7 @@ func newSeedCommand(app *application) *cobra.Command {
 			return err
 		}
 		if !app.settings.HasTelegram() {
-			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_ID; для проверки — run --dry-run"))
+			return invalid(fmt.Errorf("нужны TG_BOT_TOKEN и TG_CHAT_IDS; для проверки — run --dry-run"))
 		}
 		result, err := app.runner.Run(cmd.Context(), app.notifier(false), Options{Platforms: only, Seed: true})
 		if err != nil {
@@ -112,14 +112,14 @@ func newNotifyCommand(app *application) *cobra.Command {
 		if app.settings.Token == "" {
 			return invalid(fmt.Errorf("нет TG_BOT_TOKEN"))
 		}
-		tg := telegram.NewClient(app.settings.Token, app.settings.ChatID)
-		if app.settings.ChatID == "" {
+		tg := telegram.NewClient(app.settings.Token, app.settings.ChatIDs)
+		if len(app.settings.ChatIDs) == 0 {
 			hint, err := tg.ChatIDs(cmd.Context())
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(app.out, "TG_CHAT_ID не задан. Чаты, которые писали боту:", hint)
-			return invalid(fmt.Errorf("задай TG_CHAT_ID"))
+			fmt.Fprintln(app.out, "TG_CHAT_IDS не задан. Чаты, которые писали боту:", hint)
+			return invalid(fmt.Errorf("задай TG_CHAT_IDS"))
 		}
 		if err := tg.Send(cmd.Context(), "✅ <b>scope-watch</b> на связи.\n<pre>*.example.ru</pre>"); err != nil {
 			return err

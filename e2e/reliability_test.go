@@ -105,3 +105,49 @@ func TestRejectedMessageDoesNotBlockQueueE2E(t *testing.T) {
 	h.run(1, "notifications", "retry", "--id", fmt.Sprint(failures[0].ID))
 	h.run(2, "notifications", "retry", "--id", "0")
 }
+
+func TestMultipleChatDeliveryE2E(t *testing.T) {
+	h := newHarness(t)
+	const first = "123456789"
+	const second = "-1009876543210"
+	h.setenv("TG_CHAT_IDS", first+","+second+","+first)
+	h.fixture.mu.Lock()
+	h.fixture.listFailures = nil
+	h.fixture.mu.Unlock()
+	counts := func() map[string]int {
+		h.fixture.mu.Lock()
+		defer h.fixture.mu.Unlock()
+		out := map[string]int{}
+		for _, id := range h.fixture.deliveredChats {
+			out[id]++
+		}
+		return out
+	}
+	h.run(0, "run", "--only", "standoff")
+	if got := counts(); got[first] != 1 || got[second] != 1 {
+		t.Fatal("initial notification not delivered to unique recipients", got)
+	}
+	h.fixture.mu.Lock()
+	h.fixture.newProgram = true
+	h.fixture.failedChat = second
+	h.fixture.mu.Unlock()
+	for range 2 {
+		h.run(1, "run", "--only", "standoff")
+		if got := counts(); got[first] != 2 || got[second] != 1 {
+			t.Fatal("healthy chat missed or repeated notification", got)
+		}
+		if status := h.status(); status.Pending != 1 {
+			t.Fatal("failed recipient not retained", status)
+		}
+	}
+	h.fixture.mu.Lock()
+	h.fixture.failedChat = ""
+	h.fixture.mu.Unlock()
+	h.run(0, "run", "--only", "standoff")
+	if got := counts(); got[first] != 2 || got[second] != 2 {
+		t.Fatal("recovery repeated healthy recipient or lost failed one", got)
+	}
+	if status := h.status(); status.Pending != 0 {
+		t.Fatal("recovered recipient still pending", status)
+	}
+}

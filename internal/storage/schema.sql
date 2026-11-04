@@ -7,3 +7,4 @@ CREATE TABLE IF NOT EXISTS platform_status(platform TEXT PRIMARY KEY,last_attemp
 CREATE TABLE IF NOT EXISTS program_health(platform TEXT NOT NULL,slug TEXT NOT NULL,fails INTEGER NOT NULL DEFAULT 0,last_success REAL,PRIMARY KEY(platform,slug));
 CREATE TABLE IF NOT EXISTS delivery_failures(message_id INTEGER PRIMARY KEY,attempts INTEGER NOT NULL,last_error TEXT NOT NULL,quarantined INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS changes_ts ON changes(ts);
+CREATE TABLE IF NOT EXISTS outbox_destinations(message_id INTEGER PRIMARY KEY,chat_id TEXT NOT NULL);

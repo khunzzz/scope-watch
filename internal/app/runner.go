@@ -24,6 +24,11 @@ type Notifier interface {
 	Send(context.Context, string) error
 }
 
+type recipientNotifier interface {
+	Recipients() []string
+	SendTo(context.Context, string, string) error
+}
+
 type Runner struct {
 	settings Settings
 	adapters map[string]Adapter
@@ -283,6 +288,9 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 		FailedPrograms: failedPrograms,
 		HistoryDays:    r.settings.HistoryDays,
 	}
+	if routed, ok := n.(recipientNotifier); ok {
+		commitOptions.Recipients = routed.Recipients()
+	}
 	if err = store.CommitRun(ctx, snapshots, health, result.Changes, result.Messages, commitOptions); err != nil {
 		return result, fmt.Errorf("commit run: %w", err)
 	}
@@ -293,27 +301,61 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 // Flush attempts at most 100 queued messages per run. Quarantined messages
 // remain durable and visible without blocking subsequent delivery.
 func Flush(ctx context.Context, s *storage.Store, n Notifier, log *slog.Logger) (int, error) {
-	pending, err := s.OutboxBatch(ctx, 100)
-	if err != nil {
-		return 0, err
+	routed, multi := n.(recipientNotifier)
+	blocked := map[string]bool{}
+	excluded := []string{}
+	if multi {
+		if err := s.AssignRecipients(ctx, routed.Recipients()); err != nil {
+			return 0, err
+		}
+		excluded = append(excluded, "") // unaddressed legacy rows are bound in subsequent runs
 	}
-	for _, m := range pending {
-		if err = n.Send(ctx, m.HTML); err != nil {
-			if ctx.Err() != nil {
-				return 0, ctx.Err()
-			}
-			quarantine := telegram.IsMessageRejected(err)
-			if recordErr := s.DeliveryFailed(ctx, m.ID, telegram.Clip(err.Error(), 300), quarantine); recordErr != nil {
-				return 0, fmt.Errorf("record delivery failure: %w", recordErr)
-			}
-			log.Error("notification delivery failed", "id", m.ID, "quarantined", quarantine, "error", err)
-			if quarantine {
-				continue
-			}
+	attempts := 0
+	for attempts < 100 {
+		pending, err := s.OutboxBatch(ctx, uint64(100-attempts), excluded...)
+		if err != nil {
+			return 0, err
+		}
+		if len(pending) == 0 {
 			break
 		}
-		if err = s.OutboxDone(ctx, m.ID); err != nil {
-			return 0, fmt.Errorf("acknowledge message: %w", err)
+		stop := false
+		for _, m := range pending {
+			if blocked[m.ChatID] {
+				continue
+			}
+			attempts++
+			if multi {
+				err = routed.SendTo(ctx, m.ChatID, m.HTML)
+			} else {
+				err = n.Send(ctx, m.HTML)
+			}
+			if err != nil {
+				if ctx.Err() != nil {
+					return 0, ctx.Err()
+				}
+				quarantine := telegram.IsMessageRejected(err)
+				if recordErr := s.DeliveryFailed(ctx, m.ID, telegram.Clip(err.Error(), 300), quarantine); recordErr != nil {
+					return 0, fmt.Errorf("record delivery failure: %w", recordErr)
+				}
+				log.Error("notification delivery failed", "id", m.ID, "chat_id", m.ChatID, "quarantined", quarantine, "error", err)
+				if quarantine {
+					continue
+				}
+				if !multi {
+					stop = true
+					break
+				}
+				blocked[m.ChatID] = true
+				excluded = append(excluded, m.ChatID)
+				continue
+			}
+			if err = s.OutboxDone(ctx, m.ID); err != nil {
+				return 0, fmt.Errorf("acknowledge message: %w", err)
+			}
+		}
+		if stop {
+			break
 		}
 	}
 	queue, err := s.QueueStatus(ctx)

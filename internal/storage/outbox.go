@@ -8,23 +8,26 @@ import (
 )
 
 type Message struct {
-	ID   int64
-	HTML string
+	ID     int64
+	HTML   string
+	ChatID string
 }
 
 // OutboxBatch returns at most limit deliverable messages. Quarantined messages
 // remain in the outbox for inspection and explicit retry.
-func (s *Store) OutboxBatch(ctx context.Context, limit uint64) ([]Message, error) {
+func (s *Store) OutboxBatch(ctx context.Context, limit uint64, excludedChats ...string) ([]Message, error) {
 	if limit == 0 {
 		return nil, fmt.Errorf("outbox batch limit must be positive")
 	}
-	rows, err := sq.Select("id", "html").
+	query := sq.Select("id", "html", "COALESCE((SELECT chat_id FROM outbox_destinations d WHERE d.message_id=outbox.id),'')").
 		From("outbox").
 		Where("NOT EXISTS (SELECT 1 FROM delivery_failures f WHERE f.message_id=outbox.id AND f.quarantined=1)").
 		OrderBy("id").
-		Limit(limit).
-		RunWith(s.db).
-		QueryContext(ctx)
+		Limit(limit)
+	if len(excludedChats) > 0 {
+		query = query.Where(sq.NotEq{"COALESCE((SELECT chat_id FROM outbox_destinations d WHERE d.message_id=outbox.id),'')": excludedChats})
+	}
+	rows, err := query.RunWith(s.db).QueryContext(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +35,7 @@ func (s *Store) OutboxBatch(ctx context.Context, limit uint64) ([]Message, error
 	out := []Message{}
 	for rows.Next() {
 		var m Message
-		if err = rows.Scan(&m.ID, &m.HTML); err != nil {
+		if err = rows.Scan(&m.ID, &m.HTML, &m.ChatID); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
@@ -61,6 +64,9 @@ func (s *Store) OutboxDone(ctx context.Context, id int64) error {
 	if _, err = tx.ExecContext(ctx, "DELETE FROM delivery_failures WHERE message_id=?", id); err != nil {
 		return err
 	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM outbox_destinations WHERE message_id=?", id); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM outbox WHERE id=?", id); err != nil {
 		return err
 	}
@@ -75,6 +81,7 @@ func (s *Store) DeliveryFailed(ctx context.Context, id int64, message string, qu
 
 type DeliveryFailure struct {
 	ID          int64  `json:"id"`
+	ChatID      string `json:"chat_id"`
 	Attempts    int    `json:"attempts"`
 	LastError   string `json:"last_error"`
 	Quarantined bool   `json:"quarantined"`
@@ -85,9 +92,10 @@ func (s *Store) DeliveryFailures(ctx context.Context, limit uint64) ([]DeliveryF
 	if limit == 0 {
 		return nil, fmt.Errorf("failure list limit must be positive")
 	}
-	rows, err := sq.Select("o.id", "f.attempts", "f.last_error", "f.quarantined", "o.html").
+	rows, err := sq.Select("o.id", "f.attempts", "f.last_error", "f.quarantined", "o.html", "COALESCE(d.chat_id,'')").
 		From("outbox o").
 		Join("delivery_failures f ON f.message_id=o.id").
+		LeftJoin("outbox_destinations d ON d.message_id=o.id").
 		OrderBy("o.id").
 		Limit(limit).
 		RunWith(s.db).
@@ -99,7 +107,7 @@ func (s *Store) DeliveryFailures(ctx context.Context, limit uint64) ([]DeliveryF
 	out := []DeliveryFailure{}
 	for rows.Next() {
 		var f DeliveryFailure
-		if err := rows.Scan(&f.ID, &f.Attempts, &f.LastError, &f.Quarantined, &f.HTML); err != nil {
+		if err := rows.Scan(&f.ID, &f.Attempts, &f.LastError, &f.Quarantined, &f.HTML, &f.ChatID); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -120,4 +128,65 @@ func (s *Store) RetryNotification(ctx context.Context, id int64) error {
 		return fmt.Errorf("quarantined notification %d not found", id)
 	}
 	return nil
+}
+
+// AssignRecipients binds old unaddressed outbox entries to the configured list.
+// Existing destinations stay fixed: changing configuration never resends an
+// acknowledged notification to another recipient.
+func (s *Store) AssignRecipients(ctx context.Context, recipients []string) error {
+	if len(recipients) == 0 {
+		return fmt.Errorf("no recipients configured")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id,html,ts FROM outbox o WHERE NOT EXISTS
+        (SELECT 1 FROM outbox_destinations d WHERE d.message_id=o.id) ORDER BY id LIMIT 100`)
+	if err != nil {
+		return err
+	}
+	type pending struct {
+		id   int64
+		html string
+		ts   float64
+	}
+	old := []pending{}
+	for rows.Next() {
+		var p pending
+		if err = rows.Scan(&p.id, &p.html, &p.ts); err != nil {
+			rows.Close()
+			return err
+		}
+		old = append(old, p)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, p := range old {
+		for i, chatID := range recipients {
+			id := p.id
+			if i > 0 {
+				res, err := tx.ExecContext(ctx, "INSERT INTO outbox(ts,html) VALUES(?,?)", p.ts, p.html)
+				if err != nil {
+					return err
+				}
+				id, err = res.LastInsertId()
+				if err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, `INSERT INTO delivery_failures(message_id,attempts,last_error,quarantined)
+                    SELECT ?,attempts,last_error,quarantined FROM delivery_failures WHERE message_id=?`, id, p.id); err != nil {
+					return err
+				}
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT INTO outbox_destinations(message_id,chat_id) VALUES(?,?)", id, chatID); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }

@@ -16,13 +16,13 @@ sudo chown 1000:1000 data secrets/tg_bot_token
 sudo chmod 400 secrets/tg_bot_token
 ```
 
-Укажи `TG_CHAT_ID` в `.env`, затем:
+Укажи список чатов в `.env`: `TG_CHAT_IDS=123456789,-1001234567890`. Затем:
 
 ```sh
 docker compose up -d --build
 ```
 
-Чтобы узнать `TG_CHAT_ID`, напиши боту `/start` и выполни:
+Чтобы узнать `TG_CHAT_IDS`, напиши боту `/start` и выполни:
 
 ```sh
 docker compose run --rm scope-watch scope-watch test-notify

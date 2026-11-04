@@ -47,6 +47,8 @@ type platformFixture struct {
 	extraPrograms                                     int
 	rewardsDown, rewardsChanged                       bool
 	rejectText, rejectDescription                     string
+	failedChat                                        string
+	deliveredChats                                    []string
 	newProgram, scopeChanged, telegramDown, tasksDown bool
 	telegramRedirect, telegramError, listRedirect     string
 	telegramDrop                                      bool
@@ -89,6 +91,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 	drop := f.telegramDrop
 	extraPrograms, rewardsDown, rewardsChanged := f.extraPrograms, f.rewardsDown, f.rewardsChanged
 	rejectText, rejectDescription := f.rejectText, f.rejectDescription
+	failedChat := f.failedChat
 	block, started := f.blockList, f.listStarted
 	f.mu.Unlock()
 	write := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
@@ -228,10 +231,16 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var payload struct {
-			Text string `json:"text"`
+			Text   string `json:"text"`
+			ChatID string `json:"chat_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), 400)
+			return
+		}
+		if failedChat != "" && payload.ChatID == failedChat {
+			w.WriteHeader(http.StatusBadRequest)
+			write(map[string]any{"ok": false, "description": "Bad Request: chat not found"})
 			return
 		}
 		if rejectText != "" && strings.Contains(payload.Text, rejectText) {
@@ -241,6 +250,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.Lock()
 		f.messages = append(f.messages, payload.Text)
+		f.deliveredChats = append(f.deliveredChats, payload.ChatID)
 		f.mu.Unlock()
 		write(map[string]any{"ok": true})
 	default:
@@ -393,7 +403,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	fixture := newFixture(t, root)
 	proxy, ca := localHTTPS(t, fixture, dir)
-	overrides := map[string]string{"SCOPEWATCH_DATA": filepath.Join(dir, "data"), "SCOPEWATCH_DELAY": "0", "SCOPEWATCH_FAIL_ALERT": "1", "SCOPEWATCH_HEARTBEAT": filepath.Join(dir, "heartbeat"), "SCOPEWATCH_INTERVAL": "900", "TG_BOT_TOKEN_FILE": "", "TG_BOT_TOKEN": testToken, "TG_CHAT_ID": "1", "HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy, "ALL_PROXY": "", "all_proxy": "", "NO_PROXY": "", "no_proxy": "", "SSL_CERT_FILE": ca, "SSL_CERT_DIR": dir, "GORACE": "atexit_sleep_ms=0"}
+	overrides := map[string]string{"SCOPEWATCH_DATA": filepath.Join(dir, "data"), "SCOPEWATCH_DELAY": "0", "SCOPEWATCH_FAIL_ALERT": "1", "SCOPEWATCH_HEARTBEAT": filepath.Join(dir, "heartbeat"), "SCOPEWATCH_INTERVAL": "900", "TG_BOT_TOKEN_FILE": "", "TG_BOT_TOKEN": testToken, "TG_CHAT_IDS": "123456789", "HTTPS_PROXY": proxy, "HTTP_PROXY": proxy, "https_proxy": proxy, "http_proxy": proxy, "ALL_PROXY": "", "all_proxy": "", "NO_PROXY": "", "no_proxy": "", "SSL_CERT_FILE": ca, "SSL_CERT_DIR": dir, "GORACE": "atexit_sleep_ms=0"}
 	env := []string{}
 	for _, v := range os.Environ() {
 		k, _, _ := strings.Cut(v, "=")
@@ -457,10 +467,10 @@ func TestServiceE2E(t *testing.T) {
 	if s := h.status(); s.Pending != 1 {
 		t.Fatal("queued event duplicated", s)
 	}
-	for _, key := range []string{"TG_BOT_TOKEN", "TG_CHAT_ID"} {
+	for _, key := range []string{"TG_BOT_TOKEN", "TG_CHAT_IDS"} {
 		original := testToken
-		if key == "TG_CHAT_ID" {
-			original = "1"
+		if key == "TG_CHAT_IDS" {
+			original = "123456789"
 		}
 		h.setenv(key, "")
 		h.run(2, "seed")

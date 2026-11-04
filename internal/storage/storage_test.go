@@ -91,6 +91,16 @@ func TestOpenUpgradesLegacyDatabaseWithoutLosingQueue(t *testing.T) {
 	if queue, err := s.QueueStatus(ctx); err != nil || queue.Pending != 1 || queue.Quarantined != 1 {
 		t.Fatal(queue, err)
 	}
+	if err = s.AssignRecipients(ctx, []string{"123", "-100456"}); err != nil {
+		t.Fatal(err)
+	}
+	if queue, err := s.QueueStatus(ctx); err != nil || queue.Pending != 2 || queue.Quarantined != 2 {
+		t.Fatal("legacy fanout lost quarantine", queue, err)
+	}
+	failures, err := s.DeliveryFailures(ctx, 10)
+	if err != nil || len(failures) != 2 || failures[0].ChatID != "123" || failures[1].ChatID != "-100456" {
+		t.Fatal("legacy destinations not preserved", failures, err)
+	}
 	if err = s.RetryNotification(ctx, 42); err != nil {
 		t.Fatal(err)
 	}

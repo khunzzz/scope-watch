@@ -51,14 +51,15 @@ func (s Stdout) Send(ctx context.Context, text string) error {
 }
 
 type Client struct {
-	http                *http.Client
-	token, chatID, base string
-	mu                  sync.Mutex
-	last                time.Time
-	pause               time.Duration
+	http        *http.Client
+	token, base string
+	chatIDs     []string
+	mu          sync.Mutex
+	last        time.Time
+	pause       time.Duration
 }
 
-func NewClient(token, chatID string) *Client {
+func NewClient(token string, chatIDs []string) *Client {
 	return &Client{
 		http: &http.Client{
 			Timeout: 30 * time.Second,
@@ -67,10 +68,10 @@ func NewClient(token, chatID string) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-		token:  token,
-		chatID: chatID,
-		base:   "https://api.telegram.org",
-		pause:  time.Second,
+		token:   token,
+		chatIDs: append([]string{}, chatIDs...),
+		base:    "https://api.telegram.org",
+		pause:   time.Second,
 	}
 }
 
@@ -154,7 +155,25 @@ func (t *Client) request(ctx context.Context, method string, payload any) (respo
 	return out, r.StatusCode, nil
 }
 
+func (t *Client) Recipients() []string { return append([]string{}, t.chatIDs...) }
+
 func (t *Client) Send(ctx context.Context, text string) error {
+	if len(t.chatIDs) == 0 {
+		return fmt.Errorf("no Telegram recipients configured")
+	}
+	var result error
+	for _, id := range t.chatIDs {
+		if err := t.SendTo(ctx, id, text); err != nil {
+			result = errors.Join(result, fmt.Errorf("chat %s: %w", id, err))
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return result
+}
+
+func (t *Client) SendTo(ctx context.Context, chatID, text string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	mode := "HTML"
@@ -180,7 +199,7 @@ func (t *Client) Send(ctx context.Context, text string) error {
 		return err
 	}
 	for attempt := 0; attempt < 5; attempt++ {
-		payload := map[string]any{"chat_id": t.chatID, "text": text, "link_preview_options": map[string]bool{"is_disabled": true}}
+		payload := map[string]any{"chat_id": chatID, "text": text, "link_preview_options": map[string]bool{"is_disabled": true}}
 		if mode != "" {
 			payload["parse_mode"] = mode
 		}

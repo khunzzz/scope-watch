@@ -101,6 +101,7 @@ type CommitOptions struct {
 	Attempted      []string
 	FailedPrograms map[string][]string
 	HistoryDays    int
+	Recipients     []string
 }
 
 func (s *Store) CommitRun(
@@ -239,14 +240,25 @@ func (s *Store) CommitRun(
 			return err
 		}
 	}
+	recipients := options.Recipients
+	if len(recipients) == 0 {
+		recipients = []string{""}
+	}
 	for _, m := range messages {
-		_, err = sq.Insert("outbox").
-			Columns("ts", "html").
-			Values(now, m).
-			RunWith(tx).
-			ExecContext(ctx)
-		if err != nil {
-			return err
+		for _, chatID := range recipients {
+			res, err := sq.Insert("outbox").Columns("ts", "html").Values(now, m).RunWith(tx).ExecContext(ctx)
+			if err != nil {
+				return err
+			}
+			if chatID != "" {
+				id, err := res.LastInsertId()
+				if err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, "INSERT INTO outbox_destinations(message_id,chat_id) VALUES(?,?)", id, chatID); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return tx.Commit()

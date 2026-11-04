@@ -13,11 +13,12 @@ import (
 )
 
 type Settings struct {
-	Token, ChatID, DataDir, Heartbeat             string
+	Token, DataDir, Heartbeat                     string
 	RequestDelay, Interval                        time.Duration
 	FailAlertAfter, MinDrop, MissingRuns, MassMin int
 	MinRatio, MaxFailShare, MassRatio             float64
 	HistoryDays                                   int
+	ChatIDs                                       []string
 }
 
 func Defaults() Settings {
@@ -35,7 +36,7 @@ func Defaults() Settings {
 	}
 }
 
-func (s Settings) HasTelegram() bool { return s.Token != "" && s.ChatID != "" }
+func (s Settings) HasTelegram() bool { return s.Token != "" && len(s.ChatIDs) > 0 }
 
 func (s Settings) String() string {
 	return fmt.Sprintf("Settings{DataDir:%q Interval:%s Telegram:%t}", s.DataDir, s.Interval, s.HasTelegram())
@@ -64,7 +65,11 @@ func FromEnv() (Settings, error) {
 		}
 		s.Token = strings.TrimSpace(string(b))
 	}
-	s.ChatID = os.Getenv("TG_CHAT_ID")
+	var err error
+	s.ChatIDs, err = parseChatIDs(os.Getenv("TG_CHAT_IDS"))
+	if err != nil {
+		return s, err
+	}
 	s.Heartbeat = os.Getenv("SCOPEWATCH_HEARTBEAT")
 	if v := os.Getenv("SCOPEWATCH_DATA"); v != "" {
 		s.DataDir = filepath.Clean(v)
@@ -100,4 +105,21 @@ func FromEnv() (Settings, error) {
 		s.HistoryDays = n
 	}
 	return s, nil
+}
+
+func parseChatIDs(value string) ([]string, error) {
+	ids := []string{}
+	seen := map[string]bool{}
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\r' || r == '\t' }) {
+		id, err := strconv.ParseInt(field, 10, 64)
+		if err != nil || id == 0 {
+			return nil, fmt.Errorf("TG_CHAT_IDS must contain nonzero integer chat IDs")
+		}
+		canonical := strconv.FormatInt(id, 10)
+		if !seen[canonical] {
+			seen[canonical] = true
+			ids = append(ids, canonical)
+		}
+	}
+	return ids, nil
 }
