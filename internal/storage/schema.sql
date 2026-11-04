@@ -4,3 +4,6 @@ CREATE INDEX IF NOT EXISTS changes_program ON changes(platform,slug,ts);
 CREATE TABLE IF NOT EXISTS health (platform TEXT PRIMARY KEY,fails INTEGER NOT NULL DEFAULT 0,alerted INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY,ts REAL NOT NULL,html TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS platform_status(platform TEXT PRIMARY KEY,last_attempt REAL NOT NULL,last_success REAL);
+CREATE TABLE IF NOT EXISTS program_health(platform TEXT NOT NULL,slug TEXT NOT NULL,fails INTEGER NOT NULL DEFAULT 0,last_success REAL,PRIMARY KEY(platform,slug));
+CREATE TABLE IF NOT EXISTS delivery_failures(message_id INTEGER PRIMARY KEY,attempts INTEGER NOT NULL,last_error TEXT NOT NULL,quarantined INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS changes_ts ON changes(ts);

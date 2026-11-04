@@ -44,6 +44,9 @@ type platformFixture struct {
 	mu                                                sync.Mutex
 	listFailures                                      []int
 	listRequests                                      int
+	extraPrograms                                     int
+	rewardsDown, rewardsChanged                       bool
+	rejectText, rejectDescription                     string
 	newProgram, scopeChanged, telegramDown, tasksDown bool
 	telegramRedirect, telegramError, listRedirect     string
 	telegramDrop                                      bool
@@ -84,6 +87,8 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 	newProgram, scopeChanged, telegramDown, tasksDown := f.newProgram, f.scopeChanged, f.telegramDown, f.tasksDown
 	redirect, apiError, listRedirect := f.telegramRedirect, f.telegramError, f.listRedirect
 	drop := f.telegramDrop
+	extraPrograms, rewardsDown, rewardsChanged := f.extraPrograms, f.rewardsDown, f.rewardsChanged
+	rejectText, rejectDescription := f.rejectText, f.rejectDescription
 	block, started := f.blockList, f.listStarted
 	f.mu.Unlock()
 	write := func(v any) { w.Header().Set("Content-Type", "application/json"); _ = json.NewEncoder(w).Encode(v) }
@@ -134,7 +139,20 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			if scopeChanged {
 				flowwow["description"] = fmt.Sprint(flowwow["description"]) + "\n\n# Scope\n*.fresh.flowwow.com"
 			}
+			if rewardsChanged {
+				flowwow["updatedAt"] = "2026-11-04T12:00:00Z"
+			}
 			programs := []any{flowwow}
+			for i := 0; i < extraPrograms; i++ {
+				var item map[string]any
+				if err := json.Unmarshal(f.standoff["anyquery"], &item); err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
+				item["slug"] = fmt.Sprintf("extra-%d", i)
+				item["name"] = fmt.Sprintf("Extra %d", i)
+				programs = append(programs, item)
+			}
 			if newProgram {
 				programs = append(programs, f.standoff["anyquery"])
 			}
@@ -142,7 +160,15 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			raw, _ := json.Marshal(map[string]any{"props": map[string]any{"pageProps": pp}})
 			fmt.Fprintf(w, `<script id="__NEXT_DATA__" type="application/json">%s</script>`, raw)
 		} else {
-			raw, _ := json.Marshal(map[string]any{"props": map[string]any{"pageProps": f.rewards}})
+			if rewardsDown && r.URL.Path == "/programs/flowwow" {
+				http.Error(w, "rewards unavailable", http.StatusBadRequest)
+				return
+			}
+			rewardPage := f.rewards
+			if rewardsChanged && r.URL.Path == "/programs/flowwow" {
+				rewardPage = json.RawMessage(`{"reward":{"critical":{"minReward":50000,"maxReward":140000}}}`)
+			}
+			raw, _ := json.Marshal(map[string]any{"props": map[string]any{"pageProps": rewardPage}})
 			fmt.Fprintf(w, `<script id="__NEXT_DATA__">%s</script>`, raw)
 		}
 	case bizoneHost:
@@ -206,6 +232,11 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), 400)
+			return
+		}
+		if rejectText != "" && strings.Contains(payload.Text, rejectText) {
+			w.WriteHeader(http.StatusBadRequest)
+			write(map[string]any{"ok": false, "description": rejectDescription})
 			return
 		}
 		f.mu.Lock()
@@ -309,11 +340,17 @@ func (h *harness) run(code int, args ...string) string {
 }
 
 type statusReport struct {
-	Pending   int `json:"pending_notifications"`
-	Platforms []struct {
+	Pending     int `json:"pending_notifications"`
+	Quarantined int `json:"quarantined_notifications"`
+	Platforms   []struct {
 		Platform           string
 		Programs, Failures int
 		LastSuccess        *time.Time `json:"last_success"`
+		FailedPrograms     []struct {
+			Slug        string
+			Failures    int
+			LastSuccess *time.Time `json:"last_success"`
+		} `json:"failed_programs"`
 	}
 }
 

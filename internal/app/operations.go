@@ -244,15 +244,15 @@ func showStatus(ctx context.Context, s Settings, names []string, out io.Writer, 
 	if err != nil {
 		return err
 	}
-	queue, err := store.Outbox(ctx)
+	queue, err := store.QueueStatus(ctx)
 	if err != nil {
 		return err
 	}
 	if asJSON {
 		return json.NewEncoder(out).Encode(struct {
 			Platforms []storage.PlatformStatus `json:"platforms"`
-			Pending   int                      `json:"pending_notifications"`
-		}{platforms, len(queue)})
+			storage.QueueStatus
+		}{platforms, queue})
 	}
 	for _, p := range platforms {
 		fresh := "успешных сборов ещё не было"
@@ -271,7 +271,16 @@ func showStatus(ctx context.Context, s Settings, names []string, out io.Writer, 
 				return err
 			}
 		}
+		for _, f := range p.FailedPrograms {
+			fresh := "нет успешных данных"
+			if f.LastSuccess != nil {
+				fresh = f.LastSuccess.Format(time.RFC3339)
+			}
+			if _, err = fmt.Fprintf(out, "  %s: сбоев %d, последний полный сбор: %s\n", f.Slug, f.Failures, fresh); err != nil {
+				return err
+			}
+		}
 	}
-	_, err = fmt.Fprintf(out, "В очереди Telegram: %d\n", len(queue))
+	_, err = fmt.Fprintf(out, "В очереди Telegram: %d (в карантине: %d)\n", queue.Pending, queue.Quarantined)
 	return err
 }

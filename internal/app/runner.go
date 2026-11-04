@@ -80,6 +80,8 @@ type collected struct {
 	prev    map[string]scope.Program
 	current []scope.Program
 	err     error
+	partial error
+	failed  []string
 }
 
 func sortedPrograms(m map[string]scope.Program) []scope.Program {
@@ -150,6 +152,8 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			return result, ctx.Err()
 		}
 		if e == nil {
+			slices.Sort(f.Failed)
+			f.Failed = slices.Compact(f.Failed)
 			if f.Total < len(f.Programs) || f.Total < 0 {
 				e = fmt.Errorf("invalid program count: %d", f.Total)
 			} else if len(f.Programs) == 0 {
@@ -178,6 +182,11 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 			result.FailedPlatforms = append(result.FailedPlatforms, name)
 			r.log.Error("platform collection failed", "platform", name, "error", e)
 		} else {
+			c.failed = f.Failed
+			if len(f.Failed) > 0 {
+				c.partial = fmt.Errorf("не загрузились %d из %d программ: %s", len(f.Failed), f.Total, strings.Join(f.Failed[:min(5, len(f.Failed))], ", "))
+				result.FailedPlatforms = append(result.FailedPlatforms, name)
+			}
 			c.current = f.Programs
 			seeding[name] = opt.Seed || len(c.prev) == 0
 			if !seeding[name] {
@@ -244,14 +253,20 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 		return result, err
 	}
 	alerts := []string{}
+	failedPrograms := map[string][]string{}
 	for _, name := range names {
 		h := health[name]
 		c := collectedBy[name]
-		if c.err != nil {
+		failedPrograms[name] = c.failed
+		collectionErr := c.err
+		if collectionErr == nil {
+			collectionErr = c.partial
+		}
+		if collectionErr != nil {
 			h.Fails++
-			h.LastError = telegram.Clip(c.err.Error(), 300)
+			h.LastError = telegram.Clip(collectionErr.Error(), 300)
 			if h.Fails >= r.settings.FailAlertAfter && !h.Alerted {
-				alerts = append(alerts, r.render.HealthAlert(name, h.Fails, c.err.Error()))
+				alerts = append(alerts, r.render.HealthAlert(name, h.Fails, collectionErr.Error()))
 				h.Alerted = true
 			}
 		} else {
@@ -263,29 +278,44 @@ func (r *Runner) Run(ctx context.Context, n Notifier, opt Options) (result Resul
 		health[name] = h
 	}
 	result.Messages = append(alerts, result.Messages...)
-	if err = store.CommitRun(ctx, snapshots, health, result.Changes, result.Messages, names...); err != nil {
+	commitOptions := storage.CommitOptions{
+		Attempted:      names,
+		FailedPrograms: failedPrograms,
+		HistoryDays:    r.settings.HistoryDays,
+	}
+	if err = store.CommitRun(ctx, snapshots, health, result.Changes, result.Messages, commitOptions); err != nil {
 		return result, fmt.Errorf("commit run: %w", err)
 	}
 	result.Unsent, err = Flush(ctx, store, n, r.log)
 	return result, err
 }
 
+// Flush attempts at most 100 queued messages per run. Quarantined messages
+// remain durable and visible without blocking subsequent delivery.
 func Flush(ctx context.Context, s *storage.Store, n Notifier, log *slog.Logger) (int, error) {
-	pending, err := s.Outbox(ctx)
+	pending, err := s.OutboxBatch(ctx, 100)
 	if err != nil {
 		return 0, err
 	}
-	for i, m := range pending {
+	for _, m := range pending {
 		if err = n.Send(ctx, m.HTML); err != nil {
 			if ctx.Err() != nil {
-				return len(pending) - i, ctx.Err()
+				return 0, ctx.Err()
 			}
-			log.Error("notification delivery failed", "remaining", len(pending)-i, "error", err)
-			return len(pending) - i, nil
+			quarantine := telegram.IsMessageRejected(err)
+			if recordErr := s.DeliveryFailed(ctx, m.ID, telegram.Clip(err.Error(), 300), quarantine); recordErr != nil {
+				return 0, fmt.Errorf("record delivery failure: %w", recordErr)
+			}
+			log.Error("notification delivery failed", "id", m.ID, "quarantined", quarantine, "error", err)
+			if quarantine {
+				continue
+			}
+			break
 		}
 		if err = s.OutboxDone(ctx, m.ID); err != nil {
-			return len(pending) - i, fmt.Errorf("acknowledge message: %w", err)
+			return 0, fmt.Errorf("acknowledge message: %w", err)
 		}
 	}
-	return 0, nil
+	queue, err := s.QueueStatus(ctx)
+	return queue.Pending, err
 }

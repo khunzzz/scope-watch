@@ -40,7 +40,7 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (sco
 			return scope.Fetched{}, err
 		}
 		old, exists := prev[p.Slug]
-		stale := !exists || old.Rewards == nil || old.UpdatedAt != p.UpdatedAt || now-old.MetaNumber("rewards_at") > rewardTTL.Seconds()
+		stale := !exists || old.Rewards == nil || old.MetaNumber("rewards_pending") > 0 || old.UpdatedAt != p.UpdatedAt || now-old.MetaNumber("rewards_at") > rewardTTL.Seconds()
 		loaded := false
 		if stale && p.Active {
 			reward, err := a.loadRewards(ctx, p.Slug)
@@ -53,6 +53,7 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (sco
 					return scope.Fetched{}, ctx.Err()
 				}
 				out.Failed = append(out.Failed, p.Slug)
+				p.Meta["rewards_pending"] = 1
 			}
 		}
 		if !loaded && exists {

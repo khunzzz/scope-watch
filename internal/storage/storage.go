@@ -97,13 +97,19 @@ func (s *Store) Health(ctx context.Context) (map[string]scope.Health, error) {
 	return out, rows.Err()
 }
 
+type CommitOptions struct {
+	Attempted      []string
+	FailedPrograms map[string][]string
+	HistoryDays    int
+}
+
 func (s *Store) CommitRun(
 	ctx context.Context,
 	snapshots map[string][]scope.Program,
 	health map[string]scope.Health,
 	changes []scope.Change,
 	messages []string,
-	attempted ...string,
+	options CommitOptions,
 ) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -153,9 +159,9 @@ func (s *Store) CommitRun(
 		}
 	}
 	now := float64(time.Now().UnixNano()) / 1e9
-	for _, name := range attempted {
+	for _, name := range options.Attempted {
 		var success any
-		if _, ok := snapshots[name]; ok {
+		if _, ok := snapshots[name]; ok && health[name].Fails == 0 {
 			success = now
 		}
 		_, err = sq.Insert("platform_status").
@@ -164,6 +170,50 @@ func (s *Store) CommitRun(
 			Suffix(`ON CONFLICT(platform) DO UPDATE SET
 				last_attempt = excluded.last_attempt,
 				last_success = COALESCE(excluded.last_success, platform_status.last_success)`).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	for name, programs := range snapshots {
+		failed := map[string]bool{}
+		for _, slug := range options.FailedPrograms[name] {
+			failed[slug] = true
+		}
+		present := make([]string, 0, len(programs)+len(failed))
+		for _, p := range programs {
+			present = append(present, p.Slug)
+			if failed[p.Slug] || p.MetaNumber("missing") > 0 {
+				continue
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO program_health(platform,slug,fails,last_success) VALUES(?,?,0,?)
+				ON CONFLICT(platform,slug) DO UPDATE SET fails=0,last_success=excluded.last_success`, name, p.Slug, now)
+			if err != nil {
+				return err
+			}
+		}
+		for slug := range failed {
+			present = append(present, slug)
+			_, err = tx.ExecContext(ctx, `INSERT INTO program_health(platform,slug,fails) VALUES(?,?,1)
+				ON CONFLICT(platform,slug) DO UPDATE SET fails=program_health.fails+1`, name, slug)
+			if err != nil {
+				return err
+			}
+		}
+		_, err = sq.Delete("program_health").
+			Where(sq.Eq{"platform": name}).
+			Where(sq.NotEq{"slug": present}).
+			RunWith(tx).
+			ExecContext(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if options.HistoryDays > 0 {
+		cutoff := time.Now().Add(-time.Duration(options.HistoryDays) * 24 * time.Hour)
+		_, err = sq.Delete("changes").
+			Where(sq.Lt{"ts": float64(cutoff.UnixNano()) / 1e9}).
 			RunWith(tx).
 			ExecContext(ctx)
 		if err != nil {
@@ -202,40 +252,6 @@ func (s *Store) CommitRun(
 	return tx.Commit()
 }
 
-type Message struct {
-	ID   int64
-	HTML string
-}
-
-func (s *Store) Outbox(ctx context.Context) ([]Message, error) {
-	rows, err := sq.Select("id", "html").
-		From("outbox").
-		OrderBy("id").
-		RunWith(s.db).
-		QueryContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Message{}
-	for rows.Next() {
-		var m Message
-		if err = rows.Scan(&m.ID, &m.HTML); err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-func (s *Store) OutboxDone(ctx context.Context, id int64) error {
-	_, err := sq.Delete("outbox").
-		Where(sq.Eq{"id": id}).
-		RunWith(s.db).
-		ExecContext(ctx)
-	return err
-}
-
 func (s *Store) History(ctx context.Context, limit int, slug string) ([]map[string]any, error) {
 	if limit < 1 {
 		return nil, fmt.Errorf("history limit must be positive")
@@ -270,56 +286,4 @@ func (s *Store) History(ctx context.Context, limit int, slug string) ([]map[stri
 		out = append(out, v)
 	}
 	return out, rows.Err()
-}
-
-// PlatformStatus reports data age separately from the current failure counter.
-type PlatformStatus struct {
-	Platform    string     `json:"platform"`
-	Programs    int        `json:"programs"`
-	Active      int        `json:"active"`
-	Failures    int        `json:"failures"`
-	LastError   string     `json:"last_error,omitempty"`
-	LastAttempt *time.Time `json:"last_attempt"`
-	LastSuccess *time.Time `json:"last_success"`
-}
-
-func (s *Store) Status(ctx context.Context, names []string) ([]PlatformStatus, error) {
-	health, err := s.Health(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := []PlatformStatus{}
-	for _, name := range names {
-		programs, err := s.Load(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		h := health[name]
-		status := PlatformStatus{Platform: name, Programs: len(programs), Failures: h.Fails, LastError: h.LastError}
-		for _, p := range programs {
-			if p.Active {
-				status.Active++
-			}
-		}
-		var attempt, success sql.NullFloat64
-		err = sq.Select("last_attempt", "last_success").
-			From("platform_status").
-			Where(sq.Eq{"platform": name}).
-			RunWith(s.db).
-			QueryRowContext(ctx).
-			Scan(&attempt, &success)
-		if err != nil && err != sql.ErrNoRows {
-			return nil, err
-		}
-		if attempt.Valid {
-			t := time.Unix(0, int64(attempt.Float64*1e9)).UTC()
-			status.LastAttempt = &t
-		}
-		if success.Valid {
-			t := time.Unix(0, int64(success.Float64*1e9)).UTC()
-			status.LastSuccess = &t
-		}
-		out = append(out, status)
-	}
-	return out, nil
 }

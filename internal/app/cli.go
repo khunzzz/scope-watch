@@ -78,6 +78,7 @@ func newCommand(app *application) *cobra.Command {
 		newLinksCommand(app),
 		newExportCommand(app),
 		newNotifyCommand(app),
+		newNotificationsCommand(app),
 	)
 	root.AddCommand(&cobra.Command{
 		Use:   "healthcheck",

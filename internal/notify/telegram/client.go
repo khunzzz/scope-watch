@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -80,6 +81,32 @@ type response struct {
 		RetryAfter int `json:"retry_after"`
 	} `json:"parameters"`
 	Result json.RawMessage `json:"result"`
+}
+
+// DeliveryError separates rejection of one message from chat-wide failures.
+// Only explicit content errors may be quarantined; authentication, permissions,
+// rate limits and ambiguous network failures must keep delivery ordered.
+type DeliveryError struct {
+	Status      int
+	Description string
+}
+
+func (e *DeliveryError) Error() string {
+	return fmt.Sprintf("telegram HTTP %d: %s", e.Status, Clip(e.Description, 200))
+}
+
+func IsMessageRejected(err error) bool {
+	var delivery *DeliveryError
+	if !errors.As(err, &delivery) || delivery.Status != http.StatusBadRequest {
+		return false
+	}
+	description := strings.ToLower(delivery.Description)
+	for _, reason := range []string{"can't parse entities", "message is too long", "message text is empty"} {
+		if strings.Contains(description, reason) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Client) request(ctx context.Context, method string, payload any) (response, int, error) {
@@ -174,7 +201,7 @@ func (t *Client) Send(ctx context.Context, text string) error {
 			continue
 		}
 		if status < 200 || status >= 300 || !r.OK {
-			return fmt.Errorf("telegram HTTP %d: %s", status, Clip(r.Description, 200))
+			return &DeliveryError{Status: status, Description: r.Description}
 		}
 		return nil
 	}

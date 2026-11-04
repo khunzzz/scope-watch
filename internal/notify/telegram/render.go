@@ -373,7 +373,7 @@ func Seeded(lines []string) string {
 
 func (r *Renderer) HealthAlert(platform string, fails int, err string) string {
 	return fmt.Sprintf(
-		"⚠️ <b>%s</b> не отвечает %d проверок подряд.\n<code>%s</code>\nВозможно, поменяли API или вёрстку.",
+		"⚠️ <b>%s</b>: сбор неполон %d проверок подряд.\n<code>%s</code>\nВозможно, поменяли API или вёрстку.",
 		escaped(r.Title(platform), 100), fails, escaped(err, 300),
 	)
 }

@@ -83,6 +83,7 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (sco
 			return scope.Fetched{}, err
 		}
 		if versionErr != nil || versions == nil {
+			out.Failed = append(out.Failed, slug)
 			if old, ok := prev[slug]; ok {
 				p.Versions = append([]string{}, old.Versions...)
 			}

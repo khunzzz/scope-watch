@@ -17,6 +17,7 @@ type Settings struct {
 	RequestDelay, Interval                        time.Duration
 	FailAlertAfter, MinDrop, MissingRuns, MassMin int
 	MinRatio, MaxFailShare, MassRatio             float64
+	HistoryDays                                   int
 }
 
 func Defaults() Settings {
@@ -90,6 +91,13 @@ func FromEnv() (Settings, error) {
 			return s, fmt.Errorf("SCOPEWATCH_FAIL_ALERT must be positive")
 		}
 		s.FailAlertAfter = n
+	}
+	if v := os.Getenv("SCOPEWATCH_HISTORY_DAYS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 36500 {
+			return s, fmt.Errorf("SCOPEWATCH_HISTORY_DAYS must be between 0 and 36500")
+		}
+		s.HistoryDays = n
 	}
 	return s, nil
 }
