@@ -49,6 +49,7 @@ type platformFixture struct {
 	rejectText, rejectDescription                     string
 	failedChat                                        string
 	deliveredChats                                    []string
+	deliveredTopics                                   []*int
 	newProgram, scopeChanged, telegramDown, tasksDown bool
 	telegramRedirect, telegramError, listRedirect     string
 	telegramDrop                                      bool
@@ -231,8 +232,9 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var payload struct {
-			Text   string `json:"text"`
-			ChatID string `json:"chat_id"`
+			Text            string `json:"text"`
+			ChatID          string `json:"chat_id"`
+			MessageThreadID *int   `json:"message_thread_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, err.Error(), 400)
@@ -251,6 +253,7 @@ func (f *platformFixture) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.messages = append(f.messages, payload.Text)
 		f.deliveredChats = append(f.deliveredChats, payload.ChatID)
+		f.deliveredTopics = append(f.deliveredTopics, payload.MessageThreadID)
 		f.mu.Unlock()
 		write(map[string]any{"ok": true})
 	default:
@@ -407,7 +410,7 @@ func newHarness(t *testing.T) *harness {
 	env := []string{}
 	for _, v := range os.Environ() {
 		k, _, _ := strings.Cut(v, "=")
-		if _, ok := overrides[k]; !ok {
+		if _, ok := overrides[k]; !ok && k != "TG_MESSAGE_THREAD_ID" {
 			env = append(env, v)
 		}
 	}

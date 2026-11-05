@@ -145,7 +145,7 @@ func (app *application) validatePlatforms(names []string) error {
 
 func (app *application) notifier(dry bool) Notifier {
 	if !dry && app.settings.HasTelegram() {
-		return telegram.NewClient(app.settings.Token, app.settings.ChatIDs)
+		return telegram.NewClient(app.settings.Token, app.settings.ChatIDs, app.settings.MessageThreadID)
 	}
 	return telegram.Stdout{Writer: app.out}
 }

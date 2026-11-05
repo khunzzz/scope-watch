@@ -19,6 +19,7 @@ type Settings struct {
 	MinRatio, MaxFailShare, MassRatio             float64
 	HistoryDays                                   int
 	ChatIDs                                       []string
+	MessageThreadID                               int
 }
 
 func Defaults() Settings {
@@ -69,6 +70,13 @@ func FromEnv() (Settings, error) {
 	s.ChatIDs, err = parseChatIDs(os.Getenv("TG_CHAT_IDS"))
 	if err != nil {
 		return s, err
+	}
+	if v, ok := os.LookupEnv("TG_MESSAGE_THREAD_ID"); ok {
+		n, e := strconv.Atoi(v)
+		if e != nil || n <= 0 {
+			return s, fmt.Errorf("TG_MESSAGE_THREAD_ID must be a positive integer")
+		}
+		s.MessageThreadID = n
 	}
 	s.Heartbeat = os.Getenv("SCOPEWATCH_HEARTBEAT")
 	if v := os.Getenv("SCOPEWATCH_DATA"); v != "" {

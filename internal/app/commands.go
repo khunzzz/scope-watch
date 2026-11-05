@@ -112,7 +112,7 @@ func newNotifyCommand(app *application) *cobra.Command {
 		if app.settings.Token == "" {
 			return invalid(fmt.Errorf("нет TG_BOT_TOKEN"))
 		}
-		tg := telegram.NewClient(app.settings.Token, app.settings.ChatIDs)
+		tg := telegram.NewClient(app.settings.Token, app.settings.ChatIDs, app.settings.MessageThreadID)
 		if len(app.settings.ChatIDs) == 0 {
 			hint, err := tg.ChatIDs(cmd.Context())
 			if err != nil {

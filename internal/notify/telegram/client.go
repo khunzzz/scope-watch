@@ -51,16 +51,23 @@ func (s Stdout) Send(ctx context.Context, text string) error {
 }
 
 type Client struct {
-	http        *http.Client
-	token, base string
-	chatIDs     []string
-	mu          sync.Mutex
-	last        time.Time
-	pause       time.Duration
+	http            *http.Client
+	token, base     string
+	chatIDs         []string
+	messageThreadID int
+	mu              sync.Mutex
+	last            time.Time
+	pause           time.Duration
 }
 
-func NewClient(token string, chatIDs []string) *Client {
+// NewClient optionally routes all messages to a forum topic; zero leaves routing unset.
+func NewClient(token string, chatIDs []string, messageThreadID ...int) *Client {
+	var threadID int
+	if len(messageThreadID) > 0 {
+		threadID = messageThreadID[0]
+	}
 	return &Client{
+		messageThreadID: threadID,
 		http: &http.Client{
 			Timeout: 30 * time.Second,
 			// Bot credentials are part of the URL; redirects can expose them in Referer.
@@ -200,6 +207,9 @@ func (t *Client) SendTo(ctx context.Context, chatID, text string) error {
 	}
 	for attempt := 0; attempt < 5; attempt++ {
 		payload := map[string]any{"chat_id": chatID, "text": text, "link_preview_options": map[string]bool{"is_disabled": true}}
+		if t.messageThreadID > 0 {
+			payload["message_thread_id"] = t.messageThreadID
+		}
 		if mode != "" {
 			payload["parse_mode"] = mode
 		}
