@@ -71,8 +71,10 @@ func (a *Adapter) loadRewards(ctx context.Context, slug string) (map[string]rewa
 	if err := json.Unmarshal(page.Reward, &fields); err != nil {
 		return nil, fmt.Errorf("rewards for %q: %w", slug, err)
 	}
+	// An explicit null means no reward table is published, not a failed fetch.
+	// Keep nil distinct from an explicitly empty object for the adapter.
 	if fields == nil {
-		return nil, fmt.Errorf("null reward field for %q", slug)
+		return nil, nil
 	}
 	result := make(map[string]rewardData)
 	for _, severity := range scope.Severities {

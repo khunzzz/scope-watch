@@ -46,6 +46,13 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (sco
 			reward, err := a.loadRewards(ctx, p.Slug)
 			if err == nil {
 				p.Rewards = rewards(reward)
+				if reward == nil {
+					p.Meta["rewards_unpublished"] = 1
+					if exists && old.Rewards != nil {
+						// No published table is not evidence of zero payments.
+						p.Rewards = old.Clone().Rewards
+					}
+				}
 				p.Meta["rewards_at"] = now
 				loaded = true
 			} else {
@@ -59,6 +66,9 @@ func (a *Adapter) Fetch(ctx context.Context, prev map[string]scope.Program) (sco
 		if !loaded && exists {
 			p.Rewards = old.Clone().Rewards
 			p.Meta["rewards_at"] = old.MetaNumber("rewards_at")
+			if old.MetaNumber("rewards_unpublished") > 0 {
+				p.Meta["rewards_unpublished"] = 1
+			}
 		}
 		out.Programs = append(out.Programs, p)
 	}
