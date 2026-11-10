@@ -241,13 +241,64 @@ func (r *Renderer) section(c scope.Change, peers []scope.Program) []string {
 		lines = append(lines, "🗂 Новая версия: "+escaped(strings.Join(versions, ", "), 300))
 	}
 	if c.TextDiff != "" {
+		text := c.TextDiff
+		if c.Old != nil {
+			// Persisted diffs may have been clipped before HTML normalization.
+			// Only complete snapshots can reconstruct the actual change.
+			text = scope.TextDiff(c.Old.ScopeMD, p.ScopeMD, 1500)
+		} else if legacyHTMLDiff(text) {
+			lines = append(lines, "📝 Текст изменения недоступен в читаемом виде: сохранён старый сокращённый HTML-diff; полные правила по ссылке: "+r.link(p, "правила"))
+			return lines
+		}
 		budget := 1500
 		if len(c.AssetsAdded)+len(c.AssetsRemoved) > 0 {
 			budget = 700
 		}
-		lines = append(lines, "📝 Текст скоупа/правил:", "<pre>"+escaped(c.TextDiff, budget)+"</pre>")
+		if text != "" {
+			lines = append(lines, "📝 Текст скоупа/правил (− удалено, + добавлено):", "<pre>"+escapedDiff(text, budget)+"</pre>")
+		}
 	}
 	return lines
+}
+
+// legacyHTMLDiff recognizes presentation markup, including unfinished tags
+// clipped by older versions. It never attempts to reconstruct missing text.
+func legacyHTMLDiff(text string) bool {
+	lower := strings.ToLower(text)
+	for _, tag := range []string{"table", "thead", "tbody", "tfoot", "tr", "td", "th", "div", "p", "span", "style", "script", "head", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "pre", "code", "a", "b", "strong", "i", "em", "u", "s", "del", "font", "html", "body", "section", "article", "blockquote", "dl", "dt", "dd", "br", "hr"} {
+		for _, prefix := range []string{"<" + tag, "</" + tag} {
+			rest := lower
+			for {
+				i := strings.Index(rest, prefix)
+				if i < 0 {
+					break
+				}
+				rest = rest[i+len(prefix):]
+				if rest == "" || strings.ContainsAny(rest[:1], " >\t\r\n/") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// Give each sign its own encoded budget as escaping can expand text fivefold.
+func escapedDiff(text string, budget int) string {
+	var sides [2][]string
+	side := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "+") {
+			side = 1
+		} else if strings.HasPrefix(line, "-") {
+			side = 0
+		}
+		sides[side] = append(sides[side], line)
+	}
+	if len(sides[0]) == 0 || len(sides[1]) == 0 {
+		return escaped(text, budget)
+	}
+	return escaped(strings.Join(sides[0], "\n"), (budget-1)/2) + "\n" + escaped(strings.Join(sides[1], "\n"), (budget-1)/2)
 }
 
 func icon(changes []scope.Change) string {

@@ -24,7 +24,7 @@ func TextDiff(old, new string, budget int) string {
 		}
 		return strings.Split(strings.TrimSuffix(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
 	}
-	a, b := lines(old), lines(new)
+	a, b := lines(readableText(old)), lines(readableText(new))
 	m := difflib.NewMatcher(a, b)
 	changes := []string{}
 	for _, op := range m.GetOpCodes() {
@@ -46,16 +46,38 @@ func TextDiff(old, new string, budget int) string {
 			}
 		}
 	}
-	out := []string{}
-	used := 0
-	for i, s := range changes {
-		n := len([]rune(s)) + 1
-		if used+n > budget {
-			out = append(out, fmt.Sprintf("…ещё %d строк", len(changes)-i))
-			break
+	// Reserve space independently for each side, so a large deleted table
+	// cannot consume the replacement sentence's entire budget.
+	sides := [][]string{nil, nil}
+	for _, line := range changes {
+		i := 0
+		if strings.HasPrefix(line, "+") {
+			i = 1
 		}
-		out = append(out, s)
-		used += n
+		sides[i] = append(sides[i], line)
+	}
+	allowance := budget
+	if len(sides[0]) > 0 && len(sides[1]) > 0 {
+		allowance = (budget - 1) / 2
+	}
+	var out []string
+	for _, side := range sides {
+		used := 0
+		for i, line := range side {
+			marker := fmt.Sprintf("…ещё %d строк", len(side)-i)
+			reserve := 0
+			if i < len(side)-1 {
+				reserve = len([]rune(marker)) + 1
+			}
+			if used+len([]rune(line))+reserve > allowance {
+				if len([]rune(marker)) <= allowance-used {
+					out = append(out, marker)
+				}
+				break
+			}
+			out = append(out, line)
+			used += len([]rune(line)) + 1
+		}
 	}
 	return strings.Join(out, "\n")
 }
